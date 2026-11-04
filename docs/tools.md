@@ -62,6 +62,7 @@ This compiles the file with Verilator, drives `--vectors` seeded random inputs (
 - `--ref layer<N>.<name>`: `<name>` is a matmul tensor (`wq wk wv wo w1 w2 w3`, reference `blaze.reference.matvec_int` on the quantized weights) or a `gen-op` op. The reference is rebuilt from `--model` (default stories260K), so it has to be the checkpoint the file was generated from.
 - The top module must be named after the file (`l0_wq_matvec.v` -> `l0_wq_matvec`), and its ports must have the names and widths the reference expects. Otherwise the command stops before simulating.
 - Output: match yes/no, vectors run, and the first mismatch (vector index, output element, expected, got). The exit code is 1 on a mismatch.
+- sim-block compiles the Verilog to C++ and runs it, and Verilog can call `$system` or open files. Only simulate files you generated or trust.
 - The work directory is `build/sim/<file stem>/`, holding a copy of the Verilog, a generated `tb.cpp` and Verilator's `obj/`.
 
 Verilator setup on Windows (WSL + OSS CAD Suite) is in the [README](../README.md#simulation-setup-verilator).
