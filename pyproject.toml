@@ -15,3 +15,6 @@ blaze = "blaze.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"blaze.library" = ["verilog/*.v"]
