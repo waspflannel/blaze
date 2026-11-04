@@ -44,5 +44,5 @@ blaze adds `~/tools/oss-cad-suite/bin` to PATH for its WSL calls, so a newer rel
 - `src/blaze/pd` - Yosys/OpenLane wrappers
 - `src/blaze/report` - tokens/sec, area, power reports
 - `src/blaze/cli.py` - `blaze` CLI
-- `plugins/` - future dsh TypeScript plugins (see its README)
+- `plugins/` - dsh TypeScript plugins exposing each `blaze` command as a tool (see its README)
 - `models/` - downloaded checkpoints (gitignored)
