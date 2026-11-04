@@ -1,0 +1,1 @@
+"""Weights -> Verilog generators (placeholder)."""
