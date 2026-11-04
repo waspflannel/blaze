@@ -7,67 +7,17 @@ already gives each tensor's dtype, shape and offsets.
 """
 import hashlib
 import math
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-from blaze.spec import FLOAT_BYTES, HEADER_BYTES, Config, _tensor_sizes, read_config
+from blaze.spec import Config, Tensor, read_llama2c
 
 # llama2.c run.c hardcodes both.
 RMS_EPS = 1e-5
 ROPE_THETA = 10000.0
 # Precomputed RoPE tables in legacy exports; run.c ignores them and computes RoPE from ROPE_THETA.
 UNUSED_TENSORS = {"freq_cis_real", "freq_cis_imag"}
-
-
-@dataclass(frozen=True)
-class Tensor:
-    file: Path
-    shape: tuple[int, ...]
-    dtype: str  # numpy dtype name, stored little-endian in the file
-    offset: int  # byte offset of the first element
-
-    def load(self) -> np.ndarray:
-        dtype = np.dtype(self.dtype).newbyteorder("<")
-        data = np.fromfile(self.file, dtype=dtype, count=math.prod(self.shape), offset=self.offset)
-        return data.reshape(self.shape)
-
-
-def read_llama2c(path: Path) -> tuple[Config, dict[str, Tensor]]:
-    cfg = read_config(path)
-    sizes = _tensor_sizes(cfg)
-    expected_bytes = HEADER_BYTES + FLOAT_BYTES * sum(n for _, n in sizes)
-    actual_bytes = path.stat().st_size
-    if actual_bytes != expected_bytes:
-        raise ValueError(f"{path}: {actual_bytes} bytes, header implies {expected_bytes}; not a legacy llama2.c export")
-
-    matmuls = cfg.matmul_shapes()
-    shapes = {
-        "token_embedding": (cfg.vocab_size, cfg.dim),
-        "rms_att": (cfg.dim,),
-        "rms_ffn": (cfg.dim,),
-        "rms_final": (cfg.dim,),
-        "freq_cis_real": (cfg.seq_len, cfg.head_size // 2),
-        "freq_cis_imag": (cfg.seq_len, cfg.head_size // 2),
-        "wcls": (cfg.vocab_size, cfg.dim),
-        **matmuls,
-    }
-    per_layer = {"rms_att", "rms_ffn", *matmuls}
-
-    tensors = {}
-    offset = HEADER_BYTES
-    for name, count in sizes:
-        shape = shapes[name]
-        if name in per_layer:
-            # All layers of one tensor are stored back to back.
-            layer_bytes = FLOAT_BYTES * math.prod(shape)
-            for i in range(cfg.n_layers):
-                tensors[f"layers.{i}.{name}"] = Tensor(path, shape, "float32", offset + i * layer_bytes)
-        else:
-            tensors[name] = Tensor(path, shape, "float32", offset)
-        offset += FLOAT_BYTES * count
-    return cfg, tensors
 
 
 def read_checkpoint(path: Path) -> tuple[Config, dict[str, Tensor]]:
