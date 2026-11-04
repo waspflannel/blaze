@@ -30,5 +30,5 @@ blaze gen-matrix --layer 0 --tensor wq --out build/   # -> build/l0_wq_matvec.v 
 - `src/blaze/pd` - Yosys/OpenLane wrappers
 - `src/blaze/report` - tokens/sec, area, power reports
 - `src/blaze/cli.py` - `blaze` CLI
-- `plugins/` - future dsh TypeScript plugins (see its README)
+- `plugins/` - dsh TypeScript plugins exposing each `blaze` command as a tool (see its README)
 - `models/` - downloaded checkpoints (gitignored)

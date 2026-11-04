@@ -1,0 +1,13 @@
+# blaze tools for dsh: one Cordis plugin per blaze command, each registering one tool.
+# Paths are relative to this file; dsh loads the .ts sources directly (Node type stripping).
+- insert:
+    - id: blaze-scan-model
+      name: ./scan-model.ts
+    - id: blaze-gen-matrix
+      name: ./gen-matrix.ts
+    - id: blaze-sim-block
+      name: ./sim-block.ts
+    - id: blaze-gen-op
+      name: ./gen-op.ts
+    - id: blaze-estimate
+      name: ./estimate.ts

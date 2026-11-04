@@ -1,0 +1,25 @@
+{
+  "name": "blaze-dsh",
+  "description": "blaze CLI commands as DeepSeek Harness tools",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  }
+}
