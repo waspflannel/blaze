@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blaze"
+version = "0.0.1"
+description = "Weights-to-silicon compiler (working title)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy", "torch", "safetensors", "huggingface_hub"]
+
+[project.scripts]
+blaze = "blaze.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
