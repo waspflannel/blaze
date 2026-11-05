@@ -280,9 +280,14 @@ def rmsnorm(cfg: Config, gamma: np.ndarray) -> tuple[Block, dict, list[str]]:
     return block, {"N": n, "K": RMS_K, "FO": RMS_FO, "SW": sw, "AW": aw, "OW": ow, "G": _hex(g, 8)}, []
 
 
+def exp_lut() -> np.ndarray:
+    """Entry k is exp(-k / 16) with EXP_FRAC fractional bits, k = 0..255; entry 255 rounds to 0."""
+    return np.array([round(math.exp(-k / 2**IN_FRAC) * 2**EXP_FRAC) for k in range(256)], dtype=np.int64)
+
+
 def softmax(cfg: Config, gamma: np.ndarray) -> tuple[Block, dict, list[str]]:
     n = cfg.seq_len
-    lut = np.array([round(math.exp(-k / 2**IN_FRAC) * 2**EXP_FRAC) for k in range(256)], dtype=np.int64)
+    lut = exp_lut()
 
     def ref(v):
         e = lut[v["x"].max() - v["x"]]

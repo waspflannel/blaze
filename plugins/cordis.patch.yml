@@ -11,3 +11,5 @@
       name: ./gen-op.ts
     - id: blaze-estimate
       name: ./estimate.ts
+    - id: blaze-integrate
+      name: ./integrate.ts
