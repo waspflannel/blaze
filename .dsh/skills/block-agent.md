@@ -1,52 +1,42 @@
 ---
 name: block-agent
-description: Compile one transformer layer of a llama2.c checkpoint (default stories260K layer 0) into Verilog blocks with the blaze_* tools, verify every block against its reference with sim-block, then report the estimates.
-whenToUse: The user asks to build, compile, generate or verify a layer (or "block agent", "layer 0") with blaze.
+description: Given a llama2.c weights file, compile every layer into Verilog blocks with the blaze_* tools, verify every block against its reference with sim-block, then report the estimates.
+whenToUse: The user points at a model or weights file and asks to build, compile, generate or verify it (or a layer of it) with blaze, or asks for the "block agent".
 ---
 
 # Blaze block agent
 
-You turn one layer of a model into hardware blocks. Every block must match its Python integer reference bit for bit in simulation. Use only the `blaze_*` tools. Don't edit files, write Verilog yourself, or run blaze from the shell. Only simulate files a blaze tool just wrote.
+You turn a model into hardware blocks. The only input is the weights: a llama2.c `.bin` path or a model name under `models/`. You decide everything else: which bit widths to use, the order to work in, and how to fix a block that fails. There is no adder budget, error limit or attempt limit. Cover the whole model unless the task names a smaller part.
 
-## Inputs
-
-Take these from the task. Use the default for anything it doesn't say.
-
-| input | default |
-|---|---|
-| checkpoint | `models/stories260K/stories260K.bin` |
-| layer | `0` |
-| matrix bits | `8` for every matrix (2..8) |
-| output directory | `build/agent` |
+Use only the `blaze_*` tools. Don't edit files, write Verilog yourself, or run blaze from the shell. Only simulate files a blaze tool just wrote.
 
 ## Blocks
 
-One layer is 12 blocks, each generated and simulated once:
+Each layer has 12 blocks:
 
-- 7 matrices, `blaze_gen_matrix` with `tensor` = `wq wk wv wo w1 w2 w3`, simulated with `ref` = `layer<N>.<tensor>`.
-- 5 ops, `blaze_gen_op` with `op` = `rmsnorm silu_mul softmax rope residual_add`, simulated with `ref` = `layer<N>.<op>`.
+- 7 matrices: `blaze_gen_matrix` with `tensor` = `wq wk wv wo w1 w2 w3`, simulated with `ref` = `layer<N>.<tensor>`. You choose `bits` per matrix, anywhere gen-matrix accepts. Fewer bits means fewer adders and more weight error.
+- 5 ops: `blaze_gen_op` with `op` = `rmsnorm silu_mul softmax rope residual_add`, simulated with `ref` = `layer<N>.<op>`. Ops have fixed int8 inputs and no bit-width setting.
 
-Layer adders is the sum of each block's adders once: `adders` from gen-matrix plus `cost_estimate.adders` from gen-op. Ops have fixed int8 inputs and no bit-width setting.
+Pass the checkpoint, layer and an output directory on every call; don't rely on tool defaults. Write to `build/agent/<model file stem>/`. File names already carry the layer.
 
-## Steps
+## Work
 
-1. **Scan.** Call `blaze_scan_model` on the checkpoint. Note dim, hidden_dim, n_layers and the spec path. Stop if the layer index isn't below n_layers.
-2. **Generate.** Call `blaze_gen_matrix` for each matrix with the matrix bits, and `blaze_gen_op` for each op. Pass the checkpoint, layer and output directory each time. Keep each returned file path, adders, depth and `weight_error` (matrices) or `error_vs_float` (ops).
-3. **Verify.** Call `blaze_sim_block` on every returned file, using the default 1000 vectors and seed 0. A block passes only when `match` is true on its latest file. A regenerated file must be simulated again.
-4. **Retry** until every block matches:
-   - **Mismatch:** blaze output is deterministic, so a mismatch is a real fault. Regenerate the block once with the same settings and re-simulate it. If it still fails and it's a matrix, try one bit width up and one down (never outside 2..8). Ops have nothing to adjust. After 3 failed attempts on one block, stop retrying it and report its `first_mismatch` (vector, element, expected, got).
-   - **Tool error** (bad path, missing Verilator): report blaze's message and stop. Don't work around it.
-5. **Estimate.** Call `blaze_estimate` on each final block file for adders, depth, cycles and evals/s, and once on the spec path for the whole-model tok/s. The spec estimate prices every matmul at 8 bits, so label it as the int8 baseline.
+1. **Scan.** Call `blaze_scan_model` on the weights. Use its dim, hidden_dim, n_layers and spec path. Every layer from 0 to n_layers - 1 is in scope.
+2. **Generate and verify** every block of every layer. Call `blaze_sim_block` on each file a gen tool returns. A block passes only when `match` is true on its latest file, and a regenerated file has to be simulated again. Use at least 1000 vectors.
+3. **Fix mismatches** however you judge best: regenerate, change the matrix width, or rerun with more vectors or another seed to find the fault. blaze output is deterministic, so treat a mismatch as a real fault. Keep going until the block matches. Stop on a block only after every setting the tools offer has failed, and report its `first_mismatch` (vector, element, expected, got).
+4. **Tool errors** (bad path, missing Verilator): report blaze's message and stop. Don't work around them.
+5. **Estimate.** Call `blaze_estimate` on each final block file, and once on the spec path for the whole model. The spec estimate prices every matmul at 8 bits, so label it as the int8 baseline.
 
 ## Report
 
 End with this, in plain markdown:
 
-1. **Result**: `PASS` (all 12 blocks match) or `FAIL`, with the reason.
-2. **Blocks**: one table row per block with block, bits (matrices) or `int8 in` (ops), adders, depth, error (`weight_error` or `error_vs_float.max_abs_err`), sim match and vectors, cycles, and evals/s at SKY130 and 5nm.
-3. **Layer**: total adders, the deepest block, and the max weight error. These are info only; there is no adder or error limit.
-4. **Attempts**: every retry, in order, as what changed, why, and the outcome. Example: `wo regenerated at 8 bits: mismatch at vector 3; match`. Write `none` if every block matched first time.
-5. **Whole model (int8 baseline)**: adders, cycles per token, and tok/s at SKY130 and 5nm from the spec estimate.
-6. **Files**: the final `.v` paths.
+1. **Result**: `PASS` (every block in scope matches) or `FAIL`, with the reason.
+2. **Strategy**: the bit widths you chose and why, in a sentence or two.
+3. **Blocks**: one table per layer, one row per block, with block, bits (matrices) or `int8 in` (ops), adders, depth, error (`weight_error` or `error_vs_float.max_abs_err`), sim match and vectors, cycles, and evals/s at SKY130 and 5nm.
+4. **Layers**: per layer, total adders (each block counted once: `adders` from gen-matrix plus `cost_estimate.adders` from gen-op), deepest block and max weight error. Add the sum over the layers you built.
+5. **Attempts**: every retry, in order, as what changed, why, and the outcome. Example: `l2 wo regenerated at 8 bits: mismatch at vector 3; match`. Write `none` if every block matched the first time.
+6. **Whole model (int8 baseline)**: adders, cycles per token, and tok/s at SKY130 and 5nm from the spec estimate.
+7. **Files**: the output directory and the final `.v` paths.
 
-All numbers are blaze estimates, not synthesis results. Say so once.
+Adders, weight error and estimates are information, not pass criteria. All numbers are blaze estimates, not synthesis results. Say so once.
