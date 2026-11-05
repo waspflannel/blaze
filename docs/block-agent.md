@@ -6,9 +6,10 @@ The block agent is a dsh skill, [`.dsh/skills/block-agent.md`](../.dsh/skills/bl
 2. generates the 7 matrices and 5 ops of every layer, choosing each matrix's bit width itself,
 3. simulates every block with `sim-block`, which has to match the integer reference bit for bit,
 4. on a mismatch, retries however it judges best (regenerate, change width, more vectors) until the block matches,
-5. reports per-block, per-layer and whole-model estimates.
+5. once every block passes, calls `blaze_integrate` to stitch them into one chip, simulate it in Verilator and check its generated tokens token-exact against the integer reference model ([integrator.md](integrator.md)),
+6. reports per-block, per-layer, whole-model and chip results, including the chip's measured cycles per token.
 
-There is no default layer, no fixed bit width, no attempt limit, and no adder or weight-error limit. Adders, weight error and estimates are reported as information. A block passes only when its simulation matches. The one input is the weights. You can still narrow a run in the task, e.g. `... layer 0 only`. `gen-matrix --bits` accepts 2..8. Ops have fixed int8 inputs.
+There is no default layer, no fixed bit width, no attempt limit, and no adder or weight-error limit. Adders, weight error and estimates are reported as information. A block passes only when its simulation matches, and the chip passes only when its tokens match the reference. The one input is the weights. You can still narrow a run in the task, e.g. `... layer 0 only`. `gen-matrix --bits` accepts 2..8. Ops have fixed int8 inputs.
 
 dsh finds the skill on its own: any dsh chat whose working directory is inside this repo lists `block-agent`.
 
@@ -30,7 +31,7 @@ Copy-Item plugins\codex.patch.yml $HOME\.dsh\profiles\blaze\cordis.patch.yml
 dsh --profile blaze --dump-config | Select-String 'openai-codex|blaze-|disabled: true'
 ```
 
-The dump should show `provider: openai-codex`, five `blaze-*` rows, and `disabled: true` under `llm-deepseek`, `llm-deepseek-account` and `web-search-deepseek`.
+The dump should show `provider: openai-codex`, six `blaze-*` rows, and `disabled: true` under `llm-deepseek`, `llm-deepseek-account` and `web-search-deepseek`.
 
 ## Run it
 
@@ -41,6 +42,6 @@ $env:BLAZE_BIN = "C:\blaze\.venv\Scripts\blaze.exe"
 dsh --profile blaze "Use the block-agent skill on models/stories260K/stories260K.bin."
 ```
 
-The final report goes to stdout. Add `--json` to get every tool call and result as newline-delimited events. Blocks go to `build/agent/<model>/`.
+The final report goes to stdout. Add `--json` to get every tool call and result as newline-delimited events. Blocks go to `build/agent/<model>/` and the chip to `build/chip/<model>/`. To build and integrate only part of the model, name the layers in the task, e.g. `... layer 0 only`. Integration always starts at layer 0.
 
 To continue the same chat, pass `--session-id <id>`; the `session` event of a `--json` run carries the id. The skill also works in an interactive dsh chat (Web or TUI) on a profile that has `blaze-dsh` and `dsh-codex`, started from the repo root.

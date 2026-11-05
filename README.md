@@ -6,7 +6,7 @@ Weights-to-silicon compiler: takes open model weights and compiles them into a f
 - Token-exact simulation equivalence vs. the reference model (core product)
 - Reports: cycle-accurate tokens/sec (projected to 5nm), area, power
 
-See [docs/design.md](docs/design.md). Status: early. The CLI can download a checkpoint, scan it into a spec, turn weight matrices and fixed-point op templates into Verilog, simulate a block against its Python reference with Verilator, and estimate adders and tok/s. Every command is described in [docs/tools.md](docs/tools.md).
+See [docs/design.md](docs/design.md). Status: early. The CLI can download a checkpoint, scan it into a spec, turn weight matrices and fixed-point op templates into Verilog, simulate a block against its Python reference with Verilator, estimate adders and tok/s, and integrate verified blocks into a full chip that generates tokens in Verilator, token-exact against an integer reference model. Every command is described in [docs/tools.md](docs/tools.md).
 
 ## Setup
 
@@ -40,10 +40,11 @@ blaze adds `~/tools/oss-cad-suite/bin` to PATH for its WSL calls, so a newer rel
 - `src/blaze/reference` - reference results generated hardware must match (integer matvec now; model activations later)
 - `src/blaze/library` - hardware component templates (Verilog in `library/verilog/`)
 - `src/blaze/generate` - weights -> shift/add equations -> Verilog (`gen-matrix`)
-- `src/blaze/sim` - Verilator block/chip compare
+- `src/blaze/sim` - Verilator block compare
+- `src/blaze/integrate` - verified blocks -> full chip Verilog, its integer reference, token-exact chip simulation (see [docs/integrator.md](docs/integrator.md))
 - `src/blaze/pd` - Yosys/OpenLane wrappers
 - `src/blaze/report` - tokens/sec, area, power reports
 - `src/blaze/cli.py` - `blaze` CLI
 - `plugins/` - dsh TypeScript plugins exposing each `blaze` command as a tool (see its README)
-- `.dsh/skills/block-agent.md` - the block agent: weights file -> verified blocks for every layer via the dsh tools (see [docs/block-agent.md](docs/block-agent.md))
+- `.dsh/skills/block-agent.md` - the block agent: weights file -> verified blocks for every layer, then the integrated chip, via the dsh tools (see [docs/block-agent.md](docs/block-agent.md))
 - `models/` - downloaded checkpoints (gitignored)

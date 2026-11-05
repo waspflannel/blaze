@@ -9,6 +9,7 @@ from pathlib import Path
 from huggingface_hub import hf_hub_download
 
 from blaze.generate import generate_matrix, quant_error, quantize
+from blaze.integrate import integrate as integrate_chip
 from blaze.library import BUILDERS, build_op, measure_error
 from blaze.report import ADDER_NS, SKY130_CLOCK_MHZ, estimate_spec, estimate_verilog
 from blaze.sim import MATMUL_TENSORS, reference_block, simulate
@@ -152,6 +153,40 @@ def estimate(path: Path, model: Path | None, clock_mhz: float, adder_ns: float, 
     _emit(r, lines, as_json)
 
 
+def integrate(model: Path, blocks: Path | None, layers: int | None, steps: int, out: Path | None, sim: bool,
+              prompt: str, as_json: bool) -> bool:
+    blocks = blocks or Path("build") / "agent" / model.stem
+    try:
+        tokens = [int(t) for t in prompt.split(",") if t.strip()]
+    except ValueError:
+        raise ValueError(f"--prompt must be comma-separated token ids, got {prompt!r}") from None
+    r = integrate_chip(model, blocks, layers, steps, out or Path("build") / "chip" / model.stem, sim, tokens)
+    bits = ", ".join(f"{layer} " + " ".join(f"{t}:{b}" for t, b in ts.items()) for layer, ts in r["bits"].items())
+    lines = [
+        f"chip     {r['chip']} ({r['layers']} of {r['model_layers']} layers, blocks from {r['blocks']})",
+        f"bits     {bits}",
+        f"inputs   {r['inputs']} (BOS + prompt), then greedy",
+        f"ref      {r['steps']} tokens: {r['reference_tokens']}",
+    ]
+    if r["reference_text"] is not None:
+        lines.append(f"text     {r['reference_text']!r}")
+    lines.append(f"float    {r['float_agreement']}/{r['steps']} tokens equal the float model's (information only)")
+    if sim:
+        first = r["first_mismatch"]
+        lines += [f"sim      {r['simulator']}",
+                  f"match    {'yes, token-exact' if r['match'] else 'NO'}"
+                  + ("" if r["match"] else f": step {first['step']} expected {first['expected']}, got {first['got']}")]
+        if not r["match"]:
+            lines.append(f"chip     {r['chip_tokens']}")
+        c = r["cycles_per_token"]
+        lines += [f"cycles   {r['mean_cycles_per_token']:,.1f} per token on average ({c[0]:,} at pos 0, "
+                  f"{c[-1]:,} at pos {len(c) - 1}), from the simulation",
+                  f"tok/s    ~{r['tok_per_s']['sky130']:,.0f} SKY130 at {r['assumptions']['sky130_clock_mhz']:g} MHz, "
+                  f"~{r['tok_per_s']['5nm']:,.0f} 5nm (estimate)"]
+    _emit(r, lines, as_json)
+    return r.get("match", True)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="blaze")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -190,6 +225,15 @@ def main() -> None:
     e.add_argument("--adder-ns", type=float, default=ADDER_NS,
                    help=f"assumed delay of one adder level (default: {ADDER_NS:g})")
     e.add_argument("--json", action="store_true", help="print the summary as JSON")
+    i = sub.add_parser("integrate", help="stitch verified blocks into one chip, simulate it and compare tokens")
+    i.add_argument("--model", type=Path, default=DEFAULT_MODEL, help=f"default: {DEFAULT_MODEL}")
+    i.add_argument("--blocks", type=Path, help="verified block files (default: build/agent/<model file stem>)")
+    i.add_argument("--layers", type=int, help="build the first N layers (default: all)")
+    i.add_argument("--steps", type=int, default=32, help="positions to run, 1..seq_len (default: 32)")
+    i.add_argument("--prompt", default="", help="comma-separated token ids fed after BOS before greedy decoding")
+    i.add_argument("--out", type=Path, help="output directory (default: build/chip/<model file stem>)")
+    i.add_argument("--no-sim", action="store_true", help="write the chip Verilog only")
+    i.add_argument("--json", action="store_true", help="print the summary as JSON")
     a = p.parse_args()
 
     if a.cmd == "fetch-model":
@@ -220,3 +264,9 @@ def main() -> None:
             estimate(a.file, a.model, a.clock_mhz, a.adder_ns, a.json)
         except (OSError, ValueError, KeyError) as e:
             sys.exit(f"blaze estimate: {e}")
+    elif a.cmd == "integrate":
+        try:
+            ok = integrate(a.model, a.blocks, a.layers, a.steps, a.out, not a.no_sim, a.prompt, a.json)
+        except (OSError, ValueError, RuntimeError) as e:
+            sys.exit(f"blaze integrate: {e}")
+        sys.exit(0 if ok else 1)

@@ -70,6 +70,14 @@ Verilator setup on Windows (WSL + OSS CAD Suite) is in the [README](../README.md
 
 stories260K layer 0, 1000 vectors, seed 0, Verilator 5.055: `wq`, `rmsnorm`, `silu_mul`, `softmax`, `rope` and `residual_add` all match.
 
+## integrate
+
+```powershell
+blaze integrate --layers 1 --steps 32   # blocks from build/agent/stories260K -> build/chip/stories260K/blaze_chip.v
+```
+
+This stitches the verified blocks of the first `--layers` layers (default: all) into one chip, `blaze_chip`. The chip adds the embedding ROM, attention with a KV cache per layer, the final norm, the classifier and a control FSM. The command then simulates the chip with Verilator, runs `--steps` positions (BOS, then the optional `--prompt` token ids, then each output token fed back, greedy), and compares every token and its logit with the Python integer reference. It reports the match, the first mismatch, the tokens as text, and cycles per token measured in the simulation. `--blocks` defaults to `build/agent/<model file stem>` and has to hold all 12 block files of every included layer, exactly as `gen-matrix` and `gen-op` wrote them. `--no-sim` only writes the Verilog. The exit code is 1 on a mismatch. Numerics, control and results are in [integrator.md](integrator.md). Like `sim-block`, it compiles and runs Verilog, so only use blocks you generated.
+
 ## estimate
 
 ```powershell
