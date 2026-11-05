@@ -92,10 +92,17 @@ def _scale(peak: dict[str, float], name: str) -> float:
     return peak[name] / 127 if peak.get(name) else 2.0**-IN_FRAC
 
 
+def _block_path(blocks: Path, layer: int, name: str) -> Path:
+    """layer<N>/<name>. A flat file in the same directory is the old layout."""
+    nested = blocks / f"layer{layer}" / name
+    flat = blocks / name
+    return flat if flat.is_file() and not nested.is_file() else nested
+
+
 def _matrix(checkpoint: Path, blocks: Path, layer: int, tensor: str) -> Mat:
     """A verified gen-matrix file, checked to be exactly what gen-matrix writes for this checkpoint."""
     module = f"l{layer}_{tensor}_matvec"
-    path = blocks / f"{module}.v"
+    path = _block_path(blocks, layer, f"{module}.v")
     text = path.read_text()
     m = re.search(r"^// blaze-stats: (.*)$", text, re.M)
     bits = json.loads(m[1]).get("bits", 8) if m else 8
@@ -110,7 +117,7 @@ def _matrix(checkpoint: Path, blocks: Path, layer: int, tensor: str) -> Mat:
 def _check_ops(checkpoint: Path, blocks: Path, layer: int) -> None:
     """The verified op files must be exactly what gen-op writes; the chip instantiates the same templates."""
     for op in OPS:
-        path = blocks / f"l{layer}_{op}.v"
+        path = _block_path(blocks, layer, f"l{layer}_{op}.v")
         if path.read_text() != build_op(checkpoint, layer, op, f"l{layer}_{op}").verilog:
             raise ValueError(f"{path} is not gen-op output for {checkpoint.name} layer {layer}; regenerate and "
                              "re-verify it")
@@ -120,9 +127,10 @@ def plan_chip(checkpoint: Path, blocks: Path, n_layers: int) -> Chip:
     cfg, tensors = read_llama2c(checkpoint)
     if not 1 <= n_layers <= cfg.n_layers:
         raise ValueError(f"--layers must be 1..{cfg.n_layers}, got {n_layers}")
-    missing = [f"l{i}_{t}_matvec.v" for i in range(n_layers) for t in MATMUL_TENSORS]
-    missing += [f"l{i}_{op}.v" for i in range(n_layers) for op in OPS]
-    missing = [name for name in missing if not (blocks / name).is_file()]
+    missing = []
+    for i in range(n_layers):
+        names = [f"l{i}_{t}_matvec.v" for t in MATMUL_TENSORS] + [f"l{i}_{op}.v" for op in OPS]
+        missing += [f"layer{i}/{name}" for name in names if not _block_path(blocks, i, name).is_file()]
     if missing:
         raise ValueError(f"{blocks} is missing {len(missing)} verified block files: {', '.join(missing)}")
 

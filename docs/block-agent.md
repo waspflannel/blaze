@@ -42,6 +42,6 @@ $env:BLAZE_BIN = "C:\blaze\.venv\Scripts\blaze.exe"
 dsh --profile blaze "Use the block-agent skill on models/stories260K/stories260K.bin."
 ```
 
-The final report goes to stdout. Add `--json` to get every tool call and result as newline-delimited events. Blocks go to `build/agent/<model>/` and the chip to `build/chip/<model>/`. To build and integrate only part of the model, name the layers in the task, e.g. `... layer 0 only`. Integration always starts at layer 0.
+The final report goes to stdout. Add `--json` to get every tool call and result as newline-delimited events. Blocks go to `build/<model>/layer<N>/` and the chip to `build/<model>/chip/`. To build and integrate only part of the model, name the layers in the task, e.g. `... layer 0 only`. Integration always starts at layer 0.
 
 To continue the same chat, pass `--session-id <id>`; the `session` event of a `--json` run carries the id. The skill also works in an interactive dsh chat (Web or TUI) on a profile that has `blaze-dsh` and `dsh-codex`, started from the repo root.

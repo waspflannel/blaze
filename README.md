@@ -17,8 +17,8 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1        # macOS/Linux: source .venv/bin/activate
 pip install -e .
 blaze fetch-model stories260K     # -> models/stories260K/ (gitignored)
-blaze gen-matrix --layer 0 --tensor wq --out build/   # -> build/l0_wq_matvec.v + .txt (gitignored)
-blaze sim-block build/l0_wq_matvec.v --ref layer0.wq  # needs Verilator, see below
+blaze gen-matrix --layer 0 --tensor wq --out build/stories260K   # -> build/stories260K/layer0/l0_wq_matvec.v + .txt (gitignored)
+blaze sim-block build/stories260K/layer0/l0_wq_matvec.v --ref layer0.wq  # needs Verilator, see below
 ```
 
 ### Simulation setup (Verilator)

@@ -21,8 +21,8 @@ This reads a llama2.c checkpoint and writes the model spec: the config plus ever
 ## gen-matrix
 
 ```powershell
-blaze gen-matrix --layer 0 --tensor wq --out build/            # -> build/l0_wq_matvec.v + .txt
-blaze gen-matrix --layer 0 --tensor wq --bits 6 --out build/   # 6-bit weights
+blaze gen-matrix --layer 0 --tensor wq --out build/stories260K            # -> build/stories260K/layer0/l0_wq_matvec.v + .txt
+blaze gen-matrix --layer 0 --tensor wq --bits 6 --out build/stories260K   # 6-bit weights
 ```
 
 This turns one weight matrix into shift/add equations and a combinational Verilog module. See [generator.md](generator.md). `--bits` (2..8, default 8) sets the signed weight width. Fewer bits means fewer adders and more weight error, and the summary prints that error as relative RMS. The Verilog header has a `// blaze-stats: {"adders": ..., "depth": ..., "bits": ...}` line. `estimate` reads it, and `sim-block` quantizes a matmul's reference at its `bits`. Depth is the deepest row's balanced adder tree, `ceil(log2(CSD terms))`.
@@ -30,7 +30,7 @@ This turns one weight matrix into shift/add equations and a combinational Verilo
 ## gen-op
 
 ```powershell
-blaze gen-op rmsnorm --layer 0 --out build/   # -> build/l0_rmsnorm.v
+blaze gen-op rmsnorm --layer 0 --out build/stories260K   # -> build/stories260K/layer0/l0_rmsnorm.v
 ```
 
 This writes one fixed-point op as Verilog for one layer of the checkpoint (`--model`, default stories260K). Ops: `rmsnorm`, `silu_mul`, `softmax`, `rope`, `residual_add`. Each op is a template in `src/blaze/library/verilog/blaze_<op>.v` with its constants passed as parameters (LUTs, gamma), plus a thin top module `l<layer>_<op>` sized from the config. Each op has a Python integer reference in `blaze.library` that the Verilog matches bit for bit, and a float reference used to measure error. All blocks are combinational.
@@ -54,8 +54,8 @@ Simplifications:
 ## sim-block
 
 ```powershell
-blaze sim-block build/l0_wq_matvec.v --ref layer0.wq
-blaze sim-block build/l0_rmsnorm.v --ref layer0.rmsnorm --vectors 1000 --seed 0 --json
+blaze sim-block build/stories260K/layer0/l0_wq_matvec.v --ref layer0.wq
+blaze sim-block build/stories260K/layer0/l0_rmsnorm.v --ref layer0.rmsnorm --vectors 1000 --seed 0 --json
 ```
 
 This compiles the file with Verilator, drives `--vectors` seeded random inputs (default 1000, seed 0), and compares every output bit for bit with the Python integer reference. Data inputs are signed int8 and `rope`'s `pos` is drawn from `0..seq_len-1`. The first three vectors are all-minimum, all-maximum and all-zero.
@@ -73,16 +73,16 @@ stories260K layer 0, 1000 vectors, seed 0, Verilator 5.055: `wq`, `rmsnorm`, `si
 ## integrate
 
 ```powershell
-blaze integrate --layers 1 --steps 32   # blocks from build/agent/stories260K -> build/chip/stories260K/blaze_chip.v
+blaze integrate --layers 1 --steps 32   # blocks from build/stories260K/layerN -> build/stories260K/chip/blaze_chip.v
 ```
 
-This stitches the verified blocks of the first `--layers` layers (default: all) into one chip, `blaze_chip`. The chip adds the embedding ROM, attention with a KV cache per layer, the final norm, the classifier and a control FSM. The command then simulates the chip with Verilator, runs `--steps` positions (BOS, then the optional `--prompt` token ids, then each output token fed back, greedy), and compares every token and its logit with the Python integer reference. It reports the match, the first mismatch, the tokens as text, and cycles per token measured in the simulation. `--blocks` defaults to `build/agent/<model file stem>` and has to hold all 12 block files of every included layer, exactly as `gen-matrix` and `gen-op` wrote them. `--no-sim` only writes the Verilog. The exit code is 1 on a mismatch. Numerics, control and results are in [integrator.md](integrator.md). Like `sim-block`, it compiles and runs Verilog, so only use blocks you generated.
+This stitches the verified blocks of the first `--layers` layers (default: all) into one chip, `blaze_chip`. The chip adds the embedding ROM, attention with a KV cache per layer, the final norm, the classifier and a control FSM. The command then simulates the chip with Verilator, runs `--steps` positions (BOS, then the optional `--prompt` token ids, then each output token fed back, greedy), and compares every token and its logit with the Python integer reference. It reports the match, the first mismatch, the tokens as text, and cycles per token measured in the simulation. `--blocks` defaults to `build/<model file stem>` and has to hold all 12 block files of every included layer under `layer<N>/`, exactly as `gen-matrix` and `gen-op` wrote them. A flat directory (the old `build/agent/<model file stem>/` layout) still works. `--out` defaults to `build/<model file stem>/chip`. `--no-sim` only writes the Verilog. The exit code is 1 on a mismatch. Numerics, control and results are in [integrator.md](integrator.md). Like `sim-block`, it compiles and runs Verilog, so only use blocks you generated.
 
 ## estimate
 
 ```powershell
 blaze estimate build/stories260K/spec.json   # whole model: tok/s
-blaze estimate build/l0_wq_matvec.v          # one block: adders, depth, cycles
+blaze estimate build/stories260K/layer0/l0_wq_matvec.v   # one block: adders, depth, cycles
 ```
 
 **All numbers are estimates from a simple model, not synthesis results.**

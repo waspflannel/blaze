@@ -62,6 +62,7 @@ def gen_matrix(model: Path, layer: int, tensor: str, out: Path, bits: int) -> No
     module = f"l{layer}_{tensor}_matvec"
     verilog, equations, stats = generate_matrix(q, scale, module, f"{model.name} layer {layer} {tensor}", bits)
 
+    out = out / f"layer{layer}"
     out.mkdir(parents=True, exist_ok=True)
     verilog_path = out / f"{module}.v"
     equations_path = out / f"{module}.txt"
@@ -84,6 +85,7 @@ def _emit(summary: dict, lines: list[str], as_json: bool) -> None:
 def gen_op(model: Path, layer: int, op: str, out: Path, as_json: bool) -> None:
     module = f"l{layer}_{op}"
     block = build_op(model, layer, op, module)
+    out = out / f"layer{layer}"
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{module}.v"
     path.write_text(block.verilog, newline="\n")
@@ -155,12 +157,17 @@ def estimate(path: Path, model: Path | None, clock_mhz: float, adder_ns: float, 
 
 def integrate(model: Path, blocks: Path | None, layers: int | None, steps: int, out: Path | None, sim: bool,
               prompt: str, as_json: bool) -> bool:
-    blocks = blocks or Path("build") / "agent" / model.stem
+    # build/<stem>/layerN/ is the layout. Flat build/agent/<stem>/ remains if that tree is all there is.
+    if blocks is None:
+        new = Path("build") / model.stem
+        old = Path("build") / "agent" / model.stem
+        has_new = new.is_dir() and (any(new.glob("layer*")) or any(new.glob("l*.v")))
+        blocks = old if old.is_dir() and not has_new else new
     try:
         tokens = [int(t) for t in prompt.split(",") if t.strip()]
     except ValueError:
         raise ValueError(f"--prompt must be comma-separated token ids, got {prompt!r}") from None
-    r = integrate_chip(model, blocks, layers, steps, out or Path("build") / "chip" / model.stem, sim, tokens)
+    r = integrate_chip(model, blocks, layers, steps, out or Path("build") / model.stem / "chip", sim, tokens)
     bits = ", ".join(f"{layer} " + " ".join(f"{t}:{b}" for t, b in ts.items()) for layer, ts in r["bits"].items())
     lines = [
         f"chip     {r['chip']} ({r['layers']} of {r['model_layers']} layers, blocks from {r['blocks']})",
@@ -201,17 +208,19 @@ def main() -> None:
                    help="llama2.c .bin checkpoint (default: models/stories260K/stories260K.bin)")
     g.add_argument("--layer", type=int, default=0, help="default: 0")
     g.add_argument("--tensor", choices=MATMUL_TENSORS, default="wq", help="default: wq (query projection)")
-    g.add_argument("--out", type=Path, default=Path("build"), help="output directory (default: ./build)")
+    g.add_argument("--out", type=Path, default=Path("build"),
+                   help="output root (default: ./build); files go in layer<N>/")
     g.add_argument("--bits", type=int, choices=range(2, 9), default=8, metavar="2..8",
                    help="signed weight bits (default: 8)")
     o = sub.add_parser("gen-op", help="write a fixed-point op template (Verilog) for one layer")
     o.add_argument("op", choices=BUILDERS)
     o.add_argument("--model", type=Path, default=DEFAULT_MODEL, help=f"default: {DEFAULT_MODEL}")
     o.add_argument("--layer", type=int, default=0, help="default: 0")
-    o.add_argument("--out", type=Path, default=Path("build"), help="output directory (default: ./build)")
+    o.add_argument("--out", type=Path, default=Path("build"),
+                   help="output root (default: ./build); files go in layer<N>/")
     o.add_argument("--json", action="store_true", help="print the summary as JSON")
     b = sub.add_parser("sim-block", help="simulate a generated block with Verilator against its reference")
-    b.add_argument("file", type=Path, help="generated Verilog, e.g. build/l0_wq_matvec.v")
+    b.add_argument("file", type=Path, help="generated Verilog, e.g. build/stories260K/layer0/l0_wq_matvec.v")
     b.add_argument("--ref", required=True, help="layer<N>.<tensor or op>, e.g. layer0.wq or layer0.rmsnorm")
     b.add_argument("--model", type=Path, default=DEFAULT_MODEL, help=f"default: {DEFAULT_MODEL}")
     b.add_argument("--vectors", type=int, default=1000, help="random input vectors (default: 1000)")
@@ -227,11 +236,12 @@ def main() -> None:
     e.add_argument("--json", action="store_true", help="print the summary as JSON")
     i = sub.add_parser("integrate", help="stitch verified blocks into one chip, simulate it and compare tokens")
     i.add_argument("--model", type=Path, default=DEFAULT_MODEL, help=f"default: {DEFAULT_MODEL}")
-    i.add_argument("--blocks", type=Path, help="verified block files (default: build/agent/<model file stem>)")
+    i.add_argument("--blocks", type=Path,
+                   help="verified blocks (default: build/<model file stem>, files in layer<N>/)")
     i.add_argument("--layers", type=int, help="build the first N layers (default: all)")
     i.add_argument("--steps", type=int, default=32, help="positions to run, 1..seq_len (default: 32)")
     i.add_argument("--prompt", default="", help="comma-separated token ids fed after BOS before greedy decoding")
-    i.add_argument("--out", type=Path, help="output directory (default: build/chip/<model file stem>)")
+    i.add_argument("--out", type=Path, help="output directory (default: build/<model file stem>/chip)")
     i.add_argument("--no-sim", action="store_true", help="write the chip Verilog only")
     i.add_argument("--json", action="store_true", help="print the summary as JSON")
     a = p.parse_args()

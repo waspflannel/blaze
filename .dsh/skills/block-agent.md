@@ -17,7 +17,7 @@ Each layer has 12 blocks:
 - 7 matrices: `blaze_gen_matrix` with `tensor` = `wq wk wv wo w1 w2 w3`, simulated with `ref` = `layer<N>.<tensor>`. You choose `bits` per matrix, anywhere gen-matrix accepts. Fewer bits means fewer adders and more weight error.
 - 5 ops: `blaze_gen_op` with `op` = `rmsnorm silu_mul softmax rope residual_add`, simulated with `ref` = `layer<N>.<op>`. Ops have fixed int8 inputs and no bit-width setting.
 
-Pass the checkpoint, layer and an output directory on every call; don't rely on tool defaults. Write to `build/agent/<model file stem>/`. File names already carry the layer.
+Pass the checkpoint, layer and an output directory on every call; don't rely on tool defaults. Write to `build/<model file stem>/` and pass that directory as `out`. The CLI puts each layer's `.v` and `.txt` files in `layer<N>/` inside it (`layer0/l0_wq_matvec.v`, and so on). File names still carry the layer.
 
 ## Work
 
@@ -26,7 +26,7 @@ Pass the checkpoint, layer and an output directory on every call; don't rely on 
 3. **Fix mismatches** however you judge best: regenerate, change the matrix width, or rerun with more vectors or another seed to find the fault. blaze output is deterministic, so treat a mismatch as a real fault. Keep going until the block matches. Stop on a block only after every setting the tools offer has failed, and report its `first_mismatch` (vector, element, expected, got).
 4. **Tool errors** (bad path, missing Verilator): report blaze's message and stop. Don't work around them.
 5. **Estimate.** Call `blaze_estimate` on each final block file, and once on the spec path for the whole model. The spec estimate prices every matmul at 8 bits, so label it as the int8 baseline.
-6. **Integrate.** Once every block of layers 0..N-1 passes, call `blaze_integrate` once with `model`, `blocks` = the output directory above, `layers` = N, `steps` and `out` = `build/chip/<model file stem>/`. N is n_layers unless the task names fewer layers, and they always start at layer 0. Choose `steps` (1..seq_len) and say why. The chip passes only when `match` is true. A tool error naming a stale or missing block file means regenerating and re-verifying exactly those files, then integrating again. A result with `match: false` is a fault in the integrator's own parts (the blocks were already checked byte for byte), so don't regenerate blocks or change bit widths to chase it: report `first_mismatch` (step, expected, got) and mark the result `FAIL`. Skip this step only if some block in layers 0..N-1 never passed.
+6. **Integrate.** Once every block of layers 0..N-1 passes, call `blaze_integrate` once with `model`, `blocks` = the output directory above, `layers` = N, `steps` and `out` = `build/<model file stem>/chip/`. N is n_layers unless the task names fewer layers, and they always start at layer 0. Choose `steps` (1..seq_len) and say why. The chip passes only when `match` is true. A tool error naming a stale or missing block file means regenerating and re-verifying exactly those files, then integrating again. A result with `match: false` is a fault in the integrator's own parts (the blocks were already checked byte for byte), so don't regenerate blocks or change bit widths to chase it: report `first_mismatch` (step, expected, got) and mark the result `FAIL`. Skip this step only if some block in layers 0..N-1 never passed.
 
 ## Report
 

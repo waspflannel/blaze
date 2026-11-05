@@ -4,15 +4,15 @@
 
 ```powershell
 blaze integrate --layers 1 --steps 32                  # stories260K, first layer only
-blaze integrate --model models/stories260K/stories260K.bin --blocks build/agent/stories260K --json
+blaze integrate --model models/stories260K/stories260K.bin --blocks build/stories260K --json
 ```
 
 - `--model`: the checkpoint the blocks came from (default stories260K).
-- `--blocks`: the verified block files (default `build/agent/<model file stem>`, where the block agent writes them).
+- `--blocks`: the verified block files (default `build/<model file stem>`, where the block agent writes them). Each layer's 12 files are in `layer<N>/`. A flat directory still works, and if the new tree has no blocks the old `build/agent/<model file stem>/` layout is used.
 - `--layers N`: build the first N layers, then the final norm and classifier (default: all layers).
 - `--steps`: positions to run, 1..seq_len (default 32). Each position produces one output token. Position 0 reads BOS (token 1).
 - `--prompt`: comma-separated token ids fed after BOS; position p reads BOS and the prompt while they last, then the chip's previous output token (greedy). A prompt longer than `--steps` - 1 is an error.
-- `--out`: output directory (default `build/chip/<model file stem>`). It gets `blaze_chip.v`, the testbench `tb.cpp` and Verilator's `obj/`.
+- `--out`: output directory (default `build/<model file stem>/chip`). It gets `blaze_chip.v`, the testbench `tb.cpp` and Verilator's `obj/`.
 - `--no-sim`: write the Verilog and compute the reference tokens only.
 - `--json`: print the summary as one JSON object. The exit code is 1 on a token mismatch.
 
@@ -20,7 +20,7 @@ The dsh tool `blaze_integrate` runs the same command (see [plugins/README.md](..
 
 ## Blocks it uses
 
-Every included layer needs all 12 files the block agent verifies: `l<N>_<tensor>_matvec.v` for `wq wk wv wo w1 w2 w3` and `l<N>_<op>.v` for `rmsnorm silu_mul softmax rope residual_add`. Missing files stop the command with the list of what's missing.
+Every included layer needs all 12 files the block agent verifies, under `layer<N>/`: `l<N>_<tensor>_matvec.v` for `wq wk wv wo w1 w2 w3` and `l<N>_<op>.v` for `rmsnorm silu_mul softmax rope residual_add`. The same names flat in the blocks directory are accepted too. Missing files stop the command with the list of what's missing.
 
 - **Matrices** go into the chip verbatim, at whatever bit width the agent chose. Each file has to equal what `gen-matrix` writes for this checkpoint at the bits in its `blaze-stats` line. That catches stale files and files from another checkpoint.
 - **Ops**: each gen-op file embeds its template, so the files can't be concatenated. Instead, each file has to equal `gen-op`'s output. The chip instantiates the same templates with the same parameters for `rmsnorm`, `rope`, `silu_mul` and `residual_add`. The verified `l<N>_softmax.v` is required and byte-checked but not instantiated: `blaze_attention` adds the causal mask and reuses only the softmax's exp LUT and floor divide, so the chip's softmax path is covered by the full-chip comparison. The FFN norm and the final norm use the rmsnorm template with the `rms_ffn` and `rms_final` weights. RoPE for k uses the rope template with n = kv_dim.

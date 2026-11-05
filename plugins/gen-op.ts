@@ -8,12 +8,12 @@ export const inject = ['tools']
 export function apply(ctx: Context) {
   ctx.tools.register(defineTool({
     name: 'blaze_gen_op',
-    description: 'Run `blaze gen-op`: write one fixed-point op template as Verilog for one layer (<out>/l<layer>_<op>.v), sized and parameterized from the checkpoint. Returns the module, file, ports, output scale, number formats, measured error vs float and the adder/depth cost estimate.',
+    description: 'Run `blaze gen-op`: write one fixed-point op template as Verilog for one layer (<out>/layer<layer>/l<layer>_<op>.v), sized and parameterized from the checkpoint. Returns the module, file, ports, output scale, number formats, measured error vs float and the adder/depth cost estimate.',
     parameters: {
       op: { type: 'string', required: true, enum: ['rmsnorm', 'silu_mul', 'softmax', 'rope', 'residual_add'], description: 'Op template' },
       model: { type: 'string', description: 'llama2.c .bin checkpoint (default: models/stories260K/stories260K.bin)' },
       layer: { type: 'integer', description: 'Layer index (default: 0)' },
-      out: { type: 'string', description: 'Output directory (default: build)' },
+      out: { type: 'string', description: 'Model output root (default: build). The file goes in <out>/layer<layer>/.' },
     },
     output: jsonOutput,
     async execute(args, exec) {

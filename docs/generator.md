@@ -3,10 +3,10 @@
 `blaze gen-matrix` turns one weight matrix into hardwired shift/add equations and a combinational Verilog module. It is plain deterministic Python with no LLM, so the same checkpoint always gives byte-identical files.
 
 ```powershell
-blaze gen-matrix --layer 0 --tensor wq --out build/
+blaze gen-matrix --layer 0 --tensor wq --out build/stories260K
 ```
 
-This writes `build/l0_wq_matvec.v` and `build/l0_wq_matvec.txt`, then prints the matrix shape, the nonzero weight count and the total adders. `--tensor` accepts `wq wk wv wo w1 w2 w3`, and `--model` defaults to `models/stories260K/stories260K.bin`.
+This writes `build/stories260K/layer0/l0_wq_matvec.v` and `build/stories260K/layer0/l0_wq_matvec.txt`, then prints the matrix shape, the nonzero weight count and the total adders. `--out` is the model root; the layer directory is created under it. `--tensor` accepts `wq wk wv wo w1 w2 w3`, and `--model` defaults to `models/stories260K/stories260K.bin`.
 
 ## Flow
 

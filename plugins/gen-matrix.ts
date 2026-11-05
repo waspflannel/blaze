@@ -8,12 +8,12 @@ export const inject = ['tools']
 export function apply(ctx: Context) {
   ctx.tools.register(defineTool({
     name: 'blaze_gen_matrix',
-    description: 'Run `blaze gen-matrix`: quantize one weight matrix to signed `bits`-bit weights (default 8), turn it into shift/add equations and write a combinational Verilog module (<out>/l<layer>_<tensor>_matvec.v plus a .txt of the equations). Fewer bits means fewer adders and more weight error. Returns the file paths, shape, nonzero weights, adder count, depth, output width, bits and relative RMS weight error.',
+    description: 'Run `blaze gen-matrix`: quantize one weight matrix to signed `bits`-bit weights (default 8), turn it into shift/add equations and write a combinational Verilog module (<out>/layer<layer>/l<layer>_<tensor>_matvec.v plus a .txt of the equations). Fewer bits means fewer adders and more weight error. Returns the file paths, shape, nonzero weights, adder count, depth, output width, bits and relative RMS weight error.',
     parameters: {
       model: { type: 'string', description: 'llama2.c .bin checkpoint (default: models/stories260K/stories260K.bin)' },
       layer: { type: 'integer', description: 'Layer index (default: 0)' },
       tensor: { type: 'string', enum: ['wq', 'wk', 'wv', 'wo', 'w1', 'w2', 'w3'], description: 'Matmul tensor (default: wq)' },
-      out: { type: 'string', description: 'Output directory (default: build)' },
+      out: { type: 'string', description: 'Model output root (default: build). Files go in <out>/layer<layer>/.' },
       bits: { type: 'integer', description: 'Signed weight bits, 2..8 (default: 8). sim-block reads it back from the file.' },
     },
     output: jsonOutput,
