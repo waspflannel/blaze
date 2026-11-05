@@ -1,0 +1,14 @@
+# Profile patch for the blaze block agent: Codex via ChatGPT sign-in (dsh-codex) is the only model
+# route. The DeepSeek API-key, DeepSeek-account and DeepSeek web-search rows are switched off so
+# nothing can bill DeepSeek. Copy this over the profile's cordis.patch.yml (see docs/block-agent.md).
+- id: agent-default-model
+  config:
+    provider: openai-codex
+    model: gpt-6.1-sol
+    reasoningEffort: high
+- id: llm-deepseek
+  disabled: true
+- id: llm-deepseek-account
+  disabled: true
+- id: web-search-deepseek
+  disabled: true

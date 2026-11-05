@@ -2,12 +2,13 @@
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
 from huggingface_hub import hf_hub_download
 
-from blaze.generate import generate_matrix, quantize
+from blaze.generate import generate_matrix, quant_error, quantize
 from blaze.library import BUILDERS, build_op, measure_error
 from blaze.report import ADDER_NS, SKY130_CLOCK_MHZ, estimate_spec, estimate_verilog
 from blaze.sim import MATMUL_TENSORS, reference_block, simulate
@@ -54,11 +55,11 @@ def scan_model(checkpoint: Path, out: Path) -> None:
     print(f"wrote    {spec_path}")
 
 
-def gen_matrix(model: Path, layer: int, tensor: str, out: Path) -> None:
+def gen_matrix(model: Path, layer: int, tensor: str, out: Path, bits: int) -> None:
     weights = load_matrix(model, layer, tensor)
-    q, scale = quantize(weights)
+    q, scale = quantize(weights, bits)
     module = f"l{layer}_{tensor}_matvec"
-    verilog, equations, stats = generate_matrix(q, scale, module, f"{model.name} layer {layer} {tensor}")
+    verilog, equations, stats = generate_matrix(q, scale, module, f"{model.name} layer {layer} {tensor}", bits)
 
     out.mkdir(parents=True, exist_ok=True)
     verilog_path = out / f"{module}.v"
@@ -71,6 +72,7 @@ def gen_matrix(model: Path, layer: int, tensor: str, out: Path) -> None:
     print(f"nonzero  {stats['nonzero']} / {stats['rows'] * stats['cols']}")
     print(f"adders   {stats['adders']} ({stats['csd_terms']} CSD terms), tree depth {stats['depth']}")
     print(f"scale    {stats['scale']!r}; y is signed {stats['acc_width']}-bit")
+    print(f"bits     {bits}; weight error {quant_error(weights, q, scale):.4f} (relative RMS)")
     print(f"wrote    {verilog_path}, {equations_path}")
 
 
@@ -102,7 +104,9 @@ def gen_op(model: Path, layer: int, op: str, out: Path, as_json: bool) -> None:
 
 
 def sim_block(path: Path, ref: str, model: Path, vectors: int, seed: int, as_json: bool) -> bool:
-    block = reference_block(model, ref)
+    # A matmul's reference is quantized at the bit width gen-matrix wrote into the file's stats line.
+    m = re.search(r"^// blaze-stats: (.*)$", path.read_text(), re.M)
+    block = reference_block(model, ref, json.loads(m[1]).get("bits", 8) if m else 8)
     r = simulate(path, block, vectors, seed, Path("build") / "sim" / path.stem)
     r["ref"] = ref
     first = r["first_mismatch"]
@@ -163,6 +167,8 @@ def main() -> None:
     g.add_argument("--layer", type=int, default=0, help="default: 0")
     g.add_argument("--tensor", choices=MATMUL_TENSORS, default="wq", help="default: wq (query projection)")
     g.add_argument("--out", type=Path, default=Path("build"), help="output directory (default: ./build)")
+    g.add_argument("--bits", type=int, choices=range(2, 9), default=8, metavar="2..8",
+                   help="signed weight bits (default: 8)")
     o = sub.add_parser("gen-op", help="write a fixed-point op template (Verilog) for one layer")
     o.add_argument("op", choices=BUILDERS)
     o.add_argument("--model", type=Path, default=DEFAULT_MODEL, help=f"default: {DEFAULT_MODEL}")
@@ -195,7 +201,7 @@ def main() -> None:
             sys.exit(f"blaze scan-model: {e}")
     elif a.cmd == "gen-matrix":
         try:
-            gen_matrix(a.model, a.layer, a.tensor, a.out)
+            gen_matrix(a.model, a.layer, a.tensor, a.out, a.bits)
         except (OSError, ValueError) as e:
             sys.exit(f"blaze gen-matrix: {e}")
     elif a.cmd == "gen-op":

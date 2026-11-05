@@ -11,7 +11,7 @@ This writes `build/l0_wq_matvec.v` and `build/l0_wq_matvec.txt`, then prints the
 ## Flow
 
 1. **Load** (`blaze.spec.load_matrix`): read the 7-int llama2.c header (dim, hidden_dim, n_layers, n_heads, n_kv_heads, vocab_size, seq_len), check that the file size matches the layout that header implies, then slice out one layer's float32 matrix as `(out, in)`.
-2. **Quantize** (`blaze.generate.quantize`): use one symmetric scale per matrix, `scale = max|w| / 127` and `q = round(w / scale)` (ties round to even), clipped to -127..127. The real weight is `w ~= scale * q`, and the scale is written into both output files.
+2. **Quantize** (`blaze.generate.quantize`): use one symmetric scale per matrix, `scale = max|w| / qmax` and `q = round(w / scale)` (ties round to even), clipped to `-qmax..qmax`. `qmax = 2^(bits-1) - 1`, so the default `--bits 8` gives -127..127 and `--bits 4` gives -7..7. The real weight is `w ~= scale * q`, and the scale is written into both output files. The summary prints the relative RMS weight error, `rms(w - scale * q) / rms(w)`.
 3. **Expand** (`blaze.generate.csd`): write each nonzero `q` in canonical signed digit form, a sum of `+-(x << k)` terms with no two adjacent nonzero digits. For example 7 = 8 - 1.
 4. **Emit** (`blaze.generate.generate_matrix`): build one equation per output row, `y_i = sum_j q_ij * x_j`, skipping zero weights. It goes out as a text dump and as one Verilog module.
 5. **Reference** (`blaze.reference.matvec_int`): the exact integer `q @ x`. Generated hardware has to match it bit for bit.

@@ -21,14 +21,17 @@ WSL_TOOLS = "$HOME/tools/oss-cad-suite/bin"
 MATMUL_TENSORS = ["wq", "wk", "wv", "wo", "w1", "w2", "w3"]
 
 
-def reference_block(checkpoint: Path, ref: str) -> Block:
-    """Block for a ref id `layer<N>.<matmul tensor or op>`, e.g. layer0.wq or layer0.rmsnorm."""
+def reference_block(checkpoint: Path, ref: str, bits: int = 8) -> Block:
+    """Block for a ref id `layer<N>.<matmul tensor or op>`, e.g. layer0.wq or layer0.rmsnorm.
+
+    `bits` is the matmul weight width gen-matrix used; ops ignore it.
+    """
     m = re.fullmatch(r"layer(\d+)\.(\w+)", ref)
     if not m:
         raise ValueError(f"bad --ref {ref!r}; expected layer<N>.<name>, e.g. layer0.wq")
     layer, name = int(m[1]), m[2]
     if name in MATMUL_TENSORS:
-        q, _ = quantize(load_matrix(checkpoint, layer, name))
+        q, _ = quantize(load_matrix(checkpoint, layer, name), bits)
         rows, cols = q.shape
         return Block([Port("x", cols, 8)], Port("y", rows, acc_width(q)), lambda v: matvec_int(q, v["x"]))
     if name in BUILDERS:
