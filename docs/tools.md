@@ -21,10 +21,11 @@ This reads a llama2.c checkpoint and writes the model spec: the config plus ever
 ## gen-matrix
 
 ```powershell
-blaze gen-matrix --layer 0 --tensor wq --out build/   # -> build/l0_wq_matvec.v + .txt
+blaze gen-matrix --layer 0 --tensor wq --out build/            # -> build/l0_wq_matvec.v + .txt
+blaze gen-matrix --layer 0 --tensor wq --bits 6 --out build/   # 6-bit weights
 ```
 
-This turns one weight matrix into int8 shift/add equations and a combinational Verilog module. See [generator.md](generator.md). The Verilog header has a `// blaze-stats: {"adders": ..., "depth": ...}` line that `estimate` reads. Depth is the deepest row's balanced adder tree, `ceil(log2(CSD terms))`.
+This turns one weight matrix into shift/add equations and a combinational Verilog module. See [generator.md](generator.md). `--bits` (2..8, default 8) sets the signed weight width. Fewer bits means fewer adders and more weight error, and the summary prints that error as relative RMS. The Verilog header has a `// blaze-stats: {"adders": ..., "depth": ..., "bits": ...}` line. `estimate` reads it, and `sim-block` quantizes a matmul's reference at its `bits`. Depth is the deepest row's balanced adder tree, `ceil(log2(CSD terms))`.
 
 ## gen-op
 

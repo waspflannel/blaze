@@ -5,14 +5,14 @@ The `blaze` CLI as DeepSeek Harness (`dsh`) tools. `blaze-dsh` is one dsh bundle
 | tool | runs | returns |
 |---|---|---|
 | `blaze_scan_model` | `blaze scan-model` | spec path, config, params, op counts (total, matmul, template, per kind) |
-| `blaze_gen_matrix` | `blaze gen-matrix` | `.v`/`.txt` paths, rows, cols, nonzero, adders, CSD terms, depth, scale, output width |
+| `blaze_gen_matrix` | `blaze gen-matrix` | `.v`/`.txt` paths, rows, cols, nonzero, adders, CSD terms, depth, scale, output width, bits, weight error |
 | `blaze_sim_block` | `blaze sim-block --json` | `match`, vectors, outputs per vector, `mismatched_vectors`, `first_mismatch` (vector, element, expected, got) |
 | `blaze_gen_op` | `blaze gen-op --json` | module, file, ports, output scale, formats, error vs float, cost estimate |
 | `blaze_estimate` | `blaze estimate --json` | adders, depth, cycles, tok/s or evals/s, assumptions, per-op breakdown |
 
 A failed command (bad path, wrong ports) comes back as a tool error with blaze's own message. A simulation mismatch is a normal result with `match: false`, not an error. `sim-block`, `gen-op` and `estimate` need a `blaze` that has those commands (PR #4). `scan-model` and `gen-matrix` have no `--json`, so their tools read the written `spec.json` and the summary lines.
 
-Files: `blaze.ts` runs `blaze` (shared), one `<command>.ts` per tool, `cordis.patch.yml` lists the five plugin rows, and `package.json` declares the bundle.
+Files: `blaze.ts` runs `blaze` (shared), one `<command>.ts` per tool, `cordis.patch.yml` lists the five plugin rows, and `package.json` declares the bundle. `codex.patch.yml` is the `blaze` profile's patch for running the block agent on Codex ([docs/block-agent.md](../docs/block-agent.md)).
 
 ## How dsh loads plugins
 

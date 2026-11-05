@@ -45,4 +45,5 @@ blaze adds `~/tools/oss-cad-suite/bin` to PATH for its WSL calls, so a newer rel
 - `src/blaze/report` - tokens/sec, area, power reports
 - `src/blaze/cli.py` - `blaze` CLI
 - `plugins/` - dsh TypeScript plugins exposing each `blaze` command as a tool (see its README)
+- `.dsh/skills/block-agent.md` - the block agent: one layer -> verified, budgeted blocks via the dsh tools (see [docs/block-agent.md](docs/block-agent.md))
 - `models/` - downloaded checkpoints (gitignored)
