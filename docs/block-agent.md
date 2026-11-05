@@ -3,13 +3,12 @@
 The block agent is a dsh skill, [`.dsh/skills/block-agent.md`](../.dsh/skills/block-agent.md). It takes one layer of a checkpoint (default stories260K layer 0) and works only through the `blaze_*` dsh tools:
 
 1. scans the model,
-2. picks a weight bit width for each of the 7 matrices,
-3. generates the 7 matrices and 5 ops,
-4. simulates every block with `sim-block`,
-5. on a mismatch or an oversized layer, changes bit widths and retries until every block matches and the layer fits,
-6. reports per-block and whole-model estimates.
+2. generates the 7 matrices (default 8 bits) and 5 ops,
+3. simulates every block with `sim-block`,
+4. on a mismatch, regenerates the block and retries, stopping after 3 failed attempts on one block,
+5. reports per-block, layer and whole-model estimates.
 
-"Fits" means two things: the layer's adders, with each block counted once, stay within the budget (default 80,000), and every matrix's relative RMS weight error stays within the max (default 0.10). At 8 bits stories260K layer 0 is about 107,000 adders (matmuls 93,247, ops 13,956), so the default budget makes the agent lower some bit widths. Ops have fixed int8 inputs, so only matrix bits change.
+There is no adder budget or weight-error limit. The report includes each block's adders and each matrix's relative RMS weight error, plus the layer total (stories260K layer 0 is about 107,000 adders at 8 bits: matmuls 93,247, ops 13,956), as information only. To trade adders for error, ask for a different width, e.g. `... with 6-bit matrices`; `gen-matrix --bits` takes 2..8. Ops have fixed int8 inputs.
 
 dsh finds the skill on its own: any dsh chat whose working directory is inside this repo lists `block-agent`.
 
@@ -39,9 +38,9 @@ The dump should show `provider: openai-codex`, five `blaze-*` rows, and `disable
 cd C:\blaze
 Remove-Item Env:OPENAI_API_KEY, Env:DEEPSEEK_API_KEY -ErrorAction SilentlyContinue
 $env:BLAZE_BIN = "C:\blaze\.venv\Scripts\blaze.exe"
-dsh --profile blaze "Use the block-agent skill on stories260K layer 0 with its default budget."
+dsh --profile blaze "Use the block-agent skill on stories260K layer 0."
 ```
 
-The final report goes to stdout. Add `--json` to get every tool call and result as newline-delimited events. To change the inputs, say so in the task, e.g. `... layer 1, adder budget 70000, max weight error 0.08`. Blocks go to `build/agent/`.
+The final report goes to stdout. Add `--json` to get every tool call and result as newline-delimited events. To change the inputs, say so in the task, e.g. `... layer 1, 6-bit matrices`. Blocks go to `build/agent/`.
 
 To continue the same chat, pass `--session-id <id>`; the `session` event of a `--json` run carries the id. The skill also works in an interactive dsh chat (Web or TUI) on a profile that has `blaze-dsh` and `dsh-codex`, started from the repo root.
