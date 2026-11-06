@@ -5,6 +5,7 @@ The block agent is a dsh skill, [`.dsh/skills/block-agent.md`](../.dsh/skills/bl
 1. scans the model,
 2. generates the 7 matrices and 5 ops of every layer, choosing each matrix's bit width itself,
 3. simulates every block with `sim-block`, which has to match the integer reference bit for bit,
+   - runs `optimize-matrix` on every matrix after `gen-matrix` and simulates the `.opt.v` as well; it keeps the optimized file only if it matches ([optimizer.md](optimizer.md)),
 4. on a mismatch, retries however it judges best (regenerate, change width, more vectors) until the block matches,
 5. once every block passes, calls `blaze_integrate` to stitch them into one chip, simulate it in Verilator and check its generated tokens token-exact against the integer reference model ([integrator.md](integrator.md)),
 6. reports per-block, per-layer, whole-model and chip results, including the chip's measured cycles per token.

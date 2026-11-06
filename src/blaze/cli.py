@@ -11,6 +11,7 @@ from huggingface_hub import hf_hub_download
 from blaze.generate import generate_matrix, quant_error, quantize
 from blaze.integrate import integrate as integrate_chip
 from blaze.library import BUILDERS, build_op, measure_error
+from blaze.optimize import optimize_matrix
 from blaze.report import ADDER_NS, SKY130_CLOCK_MHZ, estimate_spec, estimate_verilog
 from blaze.sim import MATMUL_TENSORS, reference_block, simulate
 from blaze.spec import load_matrix
@@ -77,6 +78,39 @@ def gen_matrix(model: Path, layer: int, tensor: str, out: Path, bits: int) -> No
     print(f"scale    {stats['scale']!r}; y is signed {stats['acc_width']}-bit")
     print(f"bits     {bits}; weight error {quant_error(weights, q, scale):.4f} (relative RMS)")
     print(f"wrote    {verilog_path}, {equations_path}")
+
+
+def optimize(path: Path, model: Path, discard: bool, as_json: bool) -> None:
+    out = path.with_suffix(".opt.v")
+    if discard:  # the block agent's way to drop an optimized file that failed sim-block
+        existed = out.is_file()
+        out.unlink(missing_ok=True)
+        _emit({"file": str(out), "removed": existed}, [f"removed  {out}" if existed else f"absent   {out}"], as_json)
+        return
+    # The header names the layer and tensor, the stats line the bits; the file must be exactly gen-matrix output.
+    text = path.read_text()
+    head = re.search(r"^// (l\d+_\w+_matvec): y = W x, W \d+x\d+ int\d+ from .+ layer (\d+) (\w+)$", text, re.M)
+    m = re.search(r"^// blaze-stats: (.*)$", text, re.M)
+    if not head or not m:
+        raise ValueError(f"{path} has no gen-matrix header; pass a file gen-matrix wrote")
+    module, layer, tensor, bits = head[1], int(head[2]), head[3], json.loads(m[1]).get("bits", 8)
+    q, scale = quantize(load_matrix(model, layer, tensor), bits)
+    source = f"{model.name} layer {layer} {tensor}"
+    original, _, before = generate_matrix(q, scale, module, source, bits)
+    if original != text:
+        raise ValueError(f"{path} is not gen-matrix output for {source} at {bits} bits; pass the --model it came "
+                         "from, or regenerate it")
+    verilog, after = optimize_matrix(q, scale, module, source, bits)
+    out.write_text(verilog, newline="\n")
+    r = {"file": str(out), "input": str(path), "module": module, "bits": bits, "wires": after["wires"],
+         "before": {"adders": before["adders"], "depth": before["depth"]},
+         "after": {"adders": after["adders"], "depth": after["depth"]}}
+    _emit(r, [
+        f"matrix   {module} ({source}, {bits} bits)",
+        f"adders   {before['adders']} -> {after['adders']} ({after['wires']} shared wires)",
+        f"depth    {before['depth']} -> {after['depth']}",
+        f"wrote    {out}",
+    ], as_json)
 
 
 def _emit(summary: dict, lines: list[str], as_json: bool) -> None:
@@ -173,6 +207,8 @@ def integrate(model: Path, blocks: Path | None, layers: int | None, steps: int, 
     lines = [
         f"chip     {r['chip']} ({r['layers']} of {r['model_layers']} layers, blocks from {r['blocks']})",
         f"bits     {bits}",
+        f"opt      {', '.join(f'{layer} ' + ' '.join(ts) for layer, ts in r['optimized'].items() if ts) or 'none'}"
+        " (optimize-matrix files)",
         f"inputs   {r['inputs']} (BOS + prompt), then greedy",
         f"ref      {r['steps']} tokens: {r['reference_tokens']}",
     ]
@@ -238,6 +274,12 @@ def main() -> None:
                    help="output root (default: ./build); files go in layer<N>/")
     g.add_argument("--bits", type=int, choices=range(2, 9), default=8, metavar="2..8",
                    help="signed weight bits (default: 8)")
+    z = sub.add_parser("optimize-matrix", help="share common subexpressions in a gen-matrix .v; same math, fewer adders")
+    z.add_argument("file", type=Path, help="gen-matrix Verilog, e.g. build/stories260K/layer0/l0_wq_matvec.v")
+    z.add_argument("--model", type=Path, default=DEFAULT_MODEL,
+                   help=f"checkpoint the file was generated from (default: {DEFAULT_MODEL})")
+    z.add_argument("--discard", action="store_true", help="delete the file's .opt.v instead, e.g. after it failed sim-block")
+    z.add_argument("--json", action="store_true", help="print the summary as JSON")
     o = sub.add_parser("gen-op", help="write a fixed-point op template (Verilog) for one layer")
     o.add_argument("op", choices=BUILDERS)
     o.add_argument("--model", type=Path, default=DEFAULT_MODEL, help=f"default: {DEFAULT_MODEL}")
@@ -292,6 +334,11 @@ def main() -> None:
             gen_matrix(a.model, a.layer, a.tensor, a.out, a.bits)
         except (OSError, ValueError) as e:
             sys.exit(f"blaze gen-matrix: {e}")
+    elif a.cmd == "optimize-matrix":
+        try:
+            optimize(a.file, a.model, a.discard, a.json)
+        except (OSError, ValueError) as e:
+            sys.exit(f"blaze optimize-matrix: {e}")
     elif a.cmd == "gen-op":
         try:
             gen_op(a.model, a.layer, a.op, a.out, a.json)

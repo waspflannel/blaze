@@ -6,6 +6,7 @@ The `blaze` CLI as DeepSeek Harness (`dsh`) tools. `blaze-dsh` is one dsh bundle
 |---|---|---|
 | `blaze_scan_model` | `blaze scan-model` | spec path, config, params, op counts (total, matmul, template, per kind) |
 | `blaze_gen_matrix` | `blaze gen-matrix` | `.v`/`.txt` paths, rows, cols, nonzero, adders, CSD terms, depth, scale, output width, bits, weight error |
+| `blaze_optimize_matrix` | `blaze optimize-matrix --json` | `.opt.v` path, module, bits, shared wires, adders and depth before and after; with `discard`, deletes the `.opt.v` |
 | `blaze_sim_block` | `blaze sim-block --json` | `match`, vectors, outputs per vector, `mismatched_vectors`, `first_mismatch` (vector, element, expected, got) |
 | `blaze_gen_op` | `blaze gen-op --json` | module, file, ports, output scale, formats, error vs float, cost estimate |
 | `blaze_estimate` | `blaze estimate --json` | adders, depth, cycles, tok/s or evals/s, assumptions, per-op breakdown |
@@ -28,7 +29,7 @@ Checked against the installed dsh 0.2.0-rc.2 (its package READMEs, plus booting 
 
 ### Does a new chat use active plugins automatically?
 
-Yes. `ctx.tools.register` adds a tool to the process-wide registry, and the registry feeds every visible tool's schema into each agent's model request. There's no per-chat opt-in. Any session in a dsh process that loaded the bundle sees the tools, whether it's new or resumed. `sdk-minimal` restricts no tools. Booted with this bundle, its tool list is `pwsh`, `blaze_scan_model`, `blaze_gen_matrix`, `blaze_sim_block`, `blaze_gen_op`, `blaze_estimate`, `blaze_integrate`, `blaze_view`.
+Yes. `ctx.tools.register` adds a tool to the process-wide registry, and the registry feeds every visible tool's schema into each agent's model request. There's no per-chat opt-in. Any session in a dsh process that loaded the bundle sees the tools, whether it's new or resumed. `sdk-minimal` restricts no tools. Booted with this bundle, its tool list is `pwsh`, `blaze_scan_model`, `blaze_gen_matrix`, `blaze_optimize_matrix`, `blaze_sim_block`, `blaze_gen_op`, `blaze_estimate`, `blaze_integrate`, `blaze_view`.
 
 Installing a bundle selects it. To turn it off, take it out of `dsh.profile.bundles`, or set `disabled: true` on a row in the profile's `cordis.patch.yml`, e.g. `- id: blaze-sim-block` / `disabled: true`. Then restart.
 
