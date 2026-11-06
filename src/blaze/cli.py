@@ -15,6 +15,7 @@ from blaze.report import ADDER_NS, SKY130_CLOCK_MHZ, estimate_spec, estimate_ver
 from blaze.sim import MATMUL_TENSORS, reference_block, simulate
 from blaze.spec import load_matrix
 from blaze.spec.scan import UNUSED_TENSORS, build_spec, count_params, read_checkpoint
+from blaze.view import block_stem, view_dir, write_html, write_schematic
 
 # Karpathy's tiny Llama checkpoints: <name>/<file> inside the HF repo.
 REPO = "karpathy/tinyllamas"
@@ -194,6 +195,31 @@ def integrate(model: Path, blocks: Path | None, layers: int | None, steps: int, 
     return r.get("match", True)
 
 
+def view(path: Path, out: Path | None, row: int | None, schematic: bool, as_json: bool) -> None:
+    if row is not None or schematic:
+        if row is None or not schematic:
+            raise ValueError("--row N and --schematic go together")
+        r = write_schematic(path, row, out or view_dir(path) / f"{block_stem(path)}.row{row}.svg")
+        gates = ", ".join(f"{n} {t.strip('$_')}" for t, n in sorted(r["gate_types"].items()))
+        _emit(r, [
+            f"row      {r['row']} of {path}: {r['nodes']} cone nodes, {r['adders']:,} adders "
+            f"({r['shared_adders']:,} shared), depth {r['depth']}",
+            f"gates    {r['gates']:,} generic gates from yosys ({gates})",
+            f"wrote    {r['verilog']}, {r['json']}, {r['svg']}",
+        ], as_json)
+        return
+    out = out or view_dir(path) / f"{block_stem(path)}.html"
+    s = write_html(path, out)
+    s["html"] = str(out)
+    _emit(s, [
+        f"view     {path} (module {s['module']})",
+        f"inputs   {s['inputs']:,}  outputs {s['outputs']:,}",
+        f"adders   {s['adders']:,} ({s['shared_adders']:,} in nodes shared by >1 output), max depth {s['max_depth']}",
+        f"graph    {s['nodes']:,} nodes, {s['sum_nodes']:,} add/sub, {s['intermediates']:,} shared intermediate wires",
+        f"wrote    {out}",
+    ], as_json)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="blaze")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -244,6 +270,14 @@ def main() -> None:
     i.add_argument("--out", type=Path, help="output directory (default: build/<model file stem>/chip)")
     i.add_argument("--no-sim", action="store_true", help="write the chip Verilog only")
     i.add_argument("--json", action="store_true", help="print the summary as JSON")
+    v = sub.add_parser("view", help="write an interactive adder-graph page (or one row's gate schematic) for a block")
+    v.add_argument("file", type=Path, help="gen-matrix block, plain .v or optimized .opt.v")
+    v.add_argument("-o", "--out", type=Path,
+                   help="output file (default: view/<block stem>.html, or .row<N>.svg, next to the block)")
+    v.add_argument("--row", type=int, help="output row for --schematic")
+    v.add_argument("--schematic", action="store_true",
+                   help="synthesize --row's fan-in cone to gates (yosys) and draw it as SVG (netlistsvg)")
+    v.add_argument("--json", action="store_true", help="print the summary as JSON")
     a = p.parse_args()
 
     if a.cmd == "fetch-model":
@@ -280,3 +314,8 @@ def main() -> None:
         except (OSError, ValueError, RuntimeError) as e:
             sys.exit(f"blaze integrate: {e}")
         sys.exit(0 if ok else 1)
+    elif a.cmd == "view":
+        try:
+            view(a.file, a.out, a.row, a.schematic, a.json)
+        except (OSError, ValueError, RuntimeError) as e:
+            sys.exit(f"blaze view: {e}")

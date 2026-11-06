@@ -31,7 +31,7 @@ Copy-Item plugins\codex.patch.yml $HOME\.dsh\profiles\blaze\cordis.patch.yml
 dsh --profile blaze --dump-config | Select-String 'openai-codex|blaze-|disabled: true'
 ```
 
-The dump should show `provider: openai-codex`, six `blaze-*` rows, and `disabled: true` under `llm-deepseek`, `llm-deepseek-account` and `web-search-deepseek`.
+The dump should show `provider: openai-codex`, seven `blaze-*` rows, and `disabled: true` under `llm-deepseek`, `llm-deepseek-account` and `web-search-deepseek`.
 
 ## Run it
 

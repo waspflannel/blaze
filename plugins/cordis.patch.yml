@@ -13,3 +13,5 @@
       name: ./estimate.ts
     - id: blaze-integrate
       name: ./integrate.ts
+    - id: blaze-view
+      name: ./view.ts

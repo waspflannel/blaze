@@ -18,3 +18,4 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "blaze.library" = ["verilog/*.v"]
+"blaze.view" = ["viewer.html"]

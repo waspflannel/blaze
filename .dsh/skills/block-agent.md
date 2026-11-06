@@ -41,4 +41,6 @@ End with this, in plain markdown:
 7. **Chip**: layers integrated, steps, `match` (token-exact vs the integer reference) or the first mismatch, the chip's tokens as text, measured cycles per token (first, last, mean), tok/s at SKY130 and 5nm, and the float agreement count as information.
 8. **Files**: the output directory, the final `.v` paths and the chip file.
 
+If the user asks to see or inspect a matrix block's circuit, call `blaze_view` on its `.v` and give them the HTML path; it is for people to open and doesn't change any pass criteria. A gate schematic of one output row needs `row` and `schematic: true` plus yosys and netlistsvg; if the tool reports either missing, pass its install message on.
+
 Adders, weight error and estimates are information, not pass criteria. All numbers are blaze estimates, not synthesis results. Say so once.

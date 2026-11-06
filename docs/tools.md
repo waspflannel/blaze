@@ -78,6 +78,17 @@ blaze integrate --layers 1 --steps 32   # blocks from build/stories260K/layerN -
 
 This stitches the verified blocks of the first `--layers` layers (default: all) into one chip, `blaze_chip`. The chip adds the embedding ROM, attention with a KV cache per layer, the final norm, the classifier and a control FSM. The command then simulates the chip with Verilator, runs `--steps` positions (BOS, then the optional `--prompt` token ids, then each output token fed back, greedy), and compares every token and its logit with the Python integer reference. It reports the match, the first mismatch, the tokens as text, and cycles per token measured in the simulation. `--blocks` defaults to `build/<model file stem>` and has to hold all 12 block files of every included layer under `layer<N>/`, exactly as `gen-matrix` and `gen-op` wrote them. A flat directory (the old `build/agent/<model file stem>/` layout) still works. `--out` defaults to `build/<model file stem>/chip`. `--no-sim` only writes the Verilog. The exit code is 1 on a mismatch. Numerics, control and results are in [integrator.md](integrator.md). Like `sim-block`, it compiles and runs Verilog, so only use blocks you generated.
 
+## view
+
+```powershell
+blaze view build/stories260K/layer0/l0_wq_matvec.v                         # -> build/stories260K/layer0/view/l0_wq_matvec.html
+blaze view build/stories260K/layer0/l0_wq_matvec.v --row 12 --schematic    # -> view/l0_wq_matvec.row12.svg (+ .v, .json)
+```
+
+This draws a generated matrix block for a person to look at. It parses the block's Verilog assigns into an adder graph (inputs, shifts, add/sub nodes, shared intermediate wires, outputs) and writes one self-contained HTML page with no network access needed: an overview table of output rows, and an interactive graph of the rows you click, with pan/zoom, search, fan-in cone highlighting and nodes used by more than one output marked as shared. It reads plain gen-matrix blocks and optimized `.opt.v` blocks the same way. On a plain block its adders and max depth equal the file's `blaze-stats` line.
+
+`--row N --schematic` extracts output row N's fan-in cone into a small standalone module, synthesizes it to generic gates with Yosys (`synth -flatten -noabc`, then `write_json`) and draws it with [netlistsvg](https://github.com/nturley/netlistsvg). Yosys comes from OSS CAD Suite like Verilator (native, or in WSL on Windows; see the [README](../README.md#simulation-setup-verilator)). netlistsvg is an npm package: `npm install -g netlistsvg`, or install it in any folder and put its `node_modules/.bin` on PATH. If either is missing, the command stops with that install message. `-o` sets the output file, `--json` prints the summary as JSON. Details and stories260K numbers are in [viewer.md](viewer.md).
+
 ## estimate
 
 ```powershell
