@@ -18,9 +18,13 @@ import re
 import shlex
 import shutil
 import subprocess
+from dataclasses import asdict
 from pathlib import Path
 
-from blaze.sim import WSL_TOOLS
+from blaze.generate import matrix_cost, quantize
+from blaze.integrate import OPS, _block_path
+from blaze.sim import MATMUL_TENSORS, WSL_TOOLS
+from blaze.spec import load_matrix, read_config, read_llama2c
 
 TOKEN = re.compile(r"\s*(?:(\d*'[sS]?[bdhoBDHO][0-9a-fA-F_]+|\d+)|(\$?[A-Za-z_][\w$]*)|(<<<|>>>|<<|>>|[-+()\[\]:]))")
 SHIFTS = {"<<": 1, "<<<": 1, ">>": -1, ">>>": -1}
@@ -246,16 +250,21 @@ def block_stem(block_path: Path) -> str:
     return block_path.name.removesuffix(".v")
 
 
-def write_html(block_path: Path, out: Path) -> dict:
-    """Parse the block and write the viewer page to `out`. Returns the block stats."""
-    g = Graph(parse_block(block_path.read_text()))
-    stats = g.stats()
+def _rel(path: Path, page_dir: Path) -> str:
+    """`path` as the page at `page_dir` links it: relative, or a file:// URI on another drive (Windows)."""
     try:
-        svg_dir = Path(os.path.relpath(view_dir(block_path), out.parent)).as_posix()
-    except ValueError:  # another drive on Windows
-        svg_dir = view_dir(block_path).resolve().as_uri()
-    data = {
-        "file": block_path.as_posix(), "stats": stats,
+        return Path(os.path.relpath(path, page_dir)).as_posix()
+    except ValueError:
+        return path.resolve().as_uri()
+
+
+def graph_data(block_path: Path, g: Graph, page_dir: Path) -> dict:
+    """The page's JSON for one block's graph, with schematic paths relative to `page_dir`."""
+    stem = block_stem(block_path)
+    svgs = sorted(int(m[1]) for f in view_dir(block_path).glob(f"{stem}.row*.svg")
+                  if (m := re.fullmatch(re.escape(stem) + r"\.row(\d+)\.svg", f.name)))
+    return {
+        "file": block_path.as_posix(), "stats": g.stats(),
         "kind": [KINDS.index(k) for k in g.kind], "label": g.label,
         # Each input as sign * (source id + 1), so 0 never appears.
         "ins": [[s * (c + 1) for s, c in i] for i in g.ins],
@@ -263,17 +272,106 @@ def write_html(block_path: Path, out: Path) -> dict:
         "adders": g.adders, "depth": g.depth, "level": g.level, "users": g.users,
         "outputs": [{"id": o, "label": g.label[o], "index": b["index"], **r}
                     for o, b, r in zip(g.outputs, g.block["outputs"], g.rows)],
-        # Where `--row N --schematic` writes by default, relative to this page.
-        "schematic": {"svg": f"{svg_dir}/{block_stem(block_path)}.row{{N}}.svg",
-                      "command": f"blaze view {block_path.as_posix()} --row {{N}} --schematic"},
+        # Where `--row N --schematic` writes by default, relative to the page, and the rows already rendered.
+        "schematic": {"svg": f"{_rel(view_dir(block_path), page_dir)}/{stem}.row{{N}}.svg",
+                      "command": f"blaze view {block_path.as_posix()} --row {{N}} --schematic", "rows": svgs},
     }
-    # ponytail: the whole graph is inlined as JSON; fine for stories260K-sized blocks (~1 MB). Large
-    # models (4096x4096) would need a sidecar file loaded per row.
+
+
+def _write_page(data: dict, out: Path) -> None:
+    # ponytail: every graph is inlined as JSON; fine for stories260K-sized blocks (~100 KB each). Large
+    # models (4096x4096) would need sidecar files loaded per block.
     page = (Path(__file__).with_name("viewer.html").read_text(encoding="utf-8")
             .replace("/*BLAZE_DATA*/null", json.dumps(data, separators=(",", ":")).replace("</", "<\\/")))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(page, encoding="utf-8", newline="\n")
+
+
+def _parse(path: Path) -> Graph:
+    try:
+        return Graph(parse_block(path.read_text()))
+    except ValueError as e:
+        raise ValueError(f"{path}: {e}") from None
+
+
+def write_html(block_path: Path, out: Path) -> dict:
+    """Parse the block and write its viewer page to `out`: one tile, opened on its graph. Returns the block stats."""
+    g = _parse(block_path)
+    stats = g.stats()
+    key = block_stem(block_path)
+    tile = {"key": key, "label": stats["module"], "kind": "mat", "state": "plain", "file": block_path.as_posix(),
+            "plain": stats, "shape": [stats["outputs"], stats["inputs"]], "graph": key}
+    _write_page({"mode": "block", "title": stats["module"], "tiles": [tile],
+                 "graphs": {key: graph_data(block_path, g, out.parent)}}, out)
     return stats
+
+
+def model_dir_of(path: Path) -> Path:
+    """build/<model>/ for build/<model>/ itself or its chip/ directory."""
+    return path.parent if path.name == "chip" else path
+
+
+def write_model_html(path: Path, checkpoint: Path | None, out: Path) -> dict:
+    """Lay out every block under build/<model>/ as one chip workspace page.
+
+    Layers and matrix shapes come from the checkpoint when it is readable; then blocks not generated yet are
+    dim placeholders with gen-matrix's 8-bit adder count as an estimate. Without it, only layer<N>/ directories
+    on disk are laid out. Returns a summary.
+    """
+    root = model_dir_of(path)
+    if not root.is_dir():
+        raise ValueError(f"{root} is not a directory")
+    cfg = read_config(checkpoint) if checkpoint and checkpoint.is_file() else None
+    found = [int(m[1]) for d in root.glob("layer*") if (m := re.fullmatch(r"layer(\d+)", d.name)) and d.is_dir()]
+    n_layers = cfg.n_layers if cfg else max(found, default=-1) + 1
+    if not n_layers:
+        raise ValueError(f"{root} has no layer<N>/ directories and no checkpoint at {checkpoint} to lay the model out")
+    chip = (root / "chip" / "blaze_chip.v").is_file()
+    graphs: dict[str, dict] = {}
+
+    def matrix(layer: int, tensor: str) -> dict:
+        module = f"l{layer}_{tensor}_matvec"
+        tile = {"key": module, "label": tensor, "kind": "mat", "state": "missing",
+                "shape": list(cfg.matmul_shapes()[tensor]) if cfg else None}
+        # The .opt.v goes last so the tile shows the file integrate would use.
+        for state, name in (("plain", module + ".v"), ("opt", module + ".opt.v")):
+            block = _block_path(root, layer, name)
+            if block.is_file():
+                g = _parse(block)
+                tile.update({state: g.stats(), "state": state, "file": block.as_posix(), "graph": module})
+                graphs[module] = graph_data(block, g, out.parent)
+        if tile["state"] == "missing" and cfg:
+            tile["est"] = matrix_cost(quantize(load_matrix(checkpoint, layer, tensor))[0])["adders"]
+        return tile
+
+    def op(layer: int, name: str) -> dict:
+        block = _block_path(root, layer, f"l{layer}_{name}.v")
+        return {"key": f"l{layer}_{name}", "label": name, "kind": "op", "file": block.as_posix(),
+                "state": "ok" if block.is_file() else "missing"}
+
+    def chip_part(key: str, label: str, kind: str = "chip") -> dict:
+        """A part that exists only inside chip/blaze_chip.v."""
+        return {"key": key, "label": label, "kind": kind, "state": "ok" if chip else "missing"}
+
+    classifier = chip_part("cls_matvec", "classifier", "mat")
+    if cfg:
+        _, tensors = read_llama2c(checkpoint)
+        wcls = tensors["wcls" if "wcls" in tensors else "token_embedding"].load()
+        # integrate always generates the classifier with gen-matrix at 8 bits, so this is its exact count.
+        classifier.update({"est": matrix_cost(quantize(wcls)[0])["adders"], "shape": [cfg.vocab_size, cfg.dim]})
+    layers = [{"index": i, "tiles": {**{t: matrix(i, t) for t in MATMUL_TENSORS}, **{o: op(i, o) for o in OPS}}}
+              for i in range(n_layers)]
+    _write_page({"mode": "model", "title": root.name, "file": root.as_posix(), "chip": chip,
+                 "config": asdict(cfg) if cfg else None, "layers": layers,
+                 "embed": chip_part("embed", "embedding"), "final_norm": chip_part("final_norm", "final norm"),
+                 "classifier": classifier, "argmax": chip_part("argmax", "argmax"), "graphs": graphs}, out)
+    tiles = [t for ly in layers for t in ly["tiles"].values()]
+    mats = [t for t in tiles if t["kind"] == "mat"]
+    return {"model": root.name, "layers": n_layers, "checkpoint": str(checkpoint) if cfg else None, "chip": chip,
+            "blocks": sum(t["state"] != "missing" for t in tiles), "block_slots": len(tiles),
+            "matrices_optimized": sum(t["state"] == "opt" for t in mats),
+            "adders_plain": sum(t["plain"]["adders"] for t in mats if "plain" in t),
+            "adders_chosen": sum(t[t["state"]]["adders"] for t in mats if t["state"] != "missing")}
 
 
 def cone_verilog(block: dict, g: Graph, row: int) -> tuple[str, str]:

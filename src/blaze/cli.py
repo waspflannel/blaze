@@ -16,7 +16,7 @@ from blaze.report import ADDER_NS, SKY130_CLOCK_MHZ, estimate_spec, estimate_ver
 from blaze.sim import MATMUL_TENSORS, reference_block, simulate
 from blaze.spec import load_matrix
 from blaze.spec.scan import UNUSED_TENSORS, build_spec, count_params, read_checkpoint
-from blaze.view import block_stem, view_dir, write_html, write_schematic
+from blaze.view import block_stem, model_dir_of, view_dir, write_html, write_model_html, write_schematic
 
 # Karpathy's tiny Llama checkpoints: <name>/<file> inside the HF repo.
 REPO = "karpathy/tinyllamas"
@@ -231,7 +231,28 @@ def integrate(model: Path, blocks: Path | None, layers: int | None, steps: int, 
     return r.get("match", True)
 
 
-def view(path: Path, out: Path | None, row: int | None, schematic: bool, as_json: bool) -> None:
+def view(path: Path | None, model: Path | None, checkpoint: Path | None, out: Path | None, row: int | None,
+         schematic: bool, as_json: bool) -> None:
+    if (path is None) == (model is None):
+        raise ValueError("give either a block file or --model build/<model>/, not both")
+    if model is not None:
+        if row is not None or schematic:
+            raise ValueError("--row and --schematic take a block file, not --model")
+        root = model_dir_of(model)
+        checkpoint = checkpoint or Path("models") / root.name / f"{root.name}.bin"
+        out = out or root / "view" / f"{root.name}.html"
+        r = write_model_html(model, checkpoint, out)
+        r["html"] = str(out)
+        saved = r["adders_plain"] - r["adders_chosen"]
+        _emit(r, [
+            f"view     {root} ({r['layers']} layers, layout from "
+            f"{r['checkpoint'] or 'layer directories on disk; no checkpoint at ' + str(checkpoint)})",
+            f"blocks   {r['blocks']}/{r['block_slots']} generated, {r['matrices_optimized']} matrices optimized, "
+            f"chip {'integrated' if r['chip'] else 'not integrated'}",
+            f"adders   {r['adders_chosen']:,} in generated matrices ({saved:,} saved by optimize-matrix)",
+            f"wrote    {out}",
+        ], as_json)
+        return
     if row is not None or schematic:
         if row is None or not schematic:
             raise ValueError("--row N and --schematic go together")
@@ -312,10 +333,16 @@ def main() -> None:
     i.add_argument("--out", type=Path, help="output directory (default: build/<model file stem>/chip)")
     i.add_argument("--no-sim", action="store_true", help="write the chip Verilog only")
     i.add_argument("--json", action="store_true", help="print the summary as JSON")
-    v = sub.add_parser("view", help="write an interactive adder-graph page (or one row's gate schematic) for a block")
-    v.add_argument("file", type=Path, help="gen-matrix block, plain .v or optimized .opt.v")
+    v = sub.add_parser("view", help="write an interactive chip workspace page for a block or a whole build/<model>/ (or one row's gate schematic)")
+    v.add_argument("file", type=Path, nargs="?", help="gen-matrix block, plain .v or optimized .opt.v")
+    v.add_argument("--model", type=Path,
+                   help="instead of one block: build/<model>/ (or its chip/), laid out as the whole chip")
+    v.add_argument("--checkpoint", type=Path,
+                   help="with --model: checkpoint for the layer count and placeholder estimates "
+                        "(default: models/<model>/<model>.bin)")
     v.add_argument("-o", "--out", type=Path,
-                   help="output file (default: view/<block stem>.html, or .row<N>.svg, next to the block)")
+                   help="output file (default: view/<block stem>.html, or .row<N>.svg, next to the block; "
+                        "with --model, <model dir>/view/<model>.html)")
     v.add_argument("--row", type=int, help="output row for --schematic")
     v.add_argument("--schematic", action="store_true",
                    help="synthesize --row's fan-in cone to gates (yosys) and draw it as SVG (netlistsvg)")
@@ -363,6 +390,6 @@ def main() -> None:
         sys.exit(0 if ok else 1)
     elif a.cmd == "view":
         try:
-            view(a.file, a.out, a.row, a.schematic, a.json)
+            view(a.file, a.model, a.checkpoint, a.out, a.row, a.schematic, a.json)
         except (OSError, ValueError, RuntimeError) as e:
             sys.exit(f"blaze view: {e}")
