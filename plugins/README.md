@@ -11,7 +11,7 @@ The `blaze` CLI as DeepSeek Harness (`dsh`) tools. `blaze-dsh` is one dsh bundle
 | `blaze_gen_op` | `blaze gen-op --json` | module, file, ports, output scale, formats, error vs float, cost estimate |
 | `blaze_estimate` | `blaze estimate --json` | adders, depth, cycles, tok/s or evals/s, assumptions, per-op breakdown |
 | `blaze_integrate` | `blaze integrate --json` | chip path, `match`, `first_mismatch` (step, expected, got), reference and chip tokens and text, cycles per token, tok/s, bits per matrix |
-| `blaze_view` | `blaze view --json` | HTML path, inputs, outputs, adders, shared adders, max depth, graph nodes; with `row` + `schematic`: the row's adders, depth, gate counts and `.v`/`.json`/`.svg` paths |
+| `blaze_view` | `blaze view --json` | with `model`: HTML path, layers, blocks generated, matrices optimized, adders; with `file`: HTML path, inputs, outputs, adders, shared adders, max depth, graph nodes; with `row` + `schematic`: the row's adders, depth, gate counts and `.v`/`.json`/`.svg` paths |
 
 A failed command (bad path, wrong ports) comes back as a tool error with blaze's own message. A simulation or token mismatch is a normal result with `match: false`, not an error. `sim-block`, `gen-op` and `estimate` need a `blaze` that has those commands (PR #4). `scan-model` and `gen-matrix` have no `--json`, so their tools read the written `spec.json` and the summary lines.
 
