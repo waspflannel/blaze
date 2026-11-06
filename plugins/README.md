@@ -11,6 +11,7 @@ The `blaze` CLI as DeepSeek Harness (`dsh`) tools. `blaze-dsh` is one dsh bundle
 | `blaze_gen_op` | `blaze gen-op --json` | module, file, ports, output scale, formats, error vs float, cost estimate |
 | `blaze_estimate` | `blaze estimate --json` | adders, depth, cycles, tok/s or evals/s, assumptions, per-op breakdown |
 | `blaze_integrate` | `blaze integrate --json` | chip path, `match`, `first_mismatch` (step, expected, got), reference and chip tokens and text, cycles per token, tok/s, bits per matrix |
+| `blaze_view` | `blaze view --json` | HTML path, inputs, outputs, adders, shared adders, max depth, graph nodes; with `row` + `schematic`: the row's adders, depth, gate counts and `.v`/`.json`/`.svg` paths |
 
 A failed command (bad path, wrong ports) comes back as a tool error with blaze's own message. A simulation or token mismatch is a normal result with `match: false`, not an error. `sim-block`, `gen-op` and `estimate` need a `blaze` that has those commands (PR #4). `scan-model` and `gen-matrix` have no `--json`, so their tools read the written `spec.json` and the summary lines.
 
@@ -28,7 +29,7 @@ Checked against the installed dsh 0.2.0-rc.2 (its package READMEs, plus booting 
 
 ### Does a new chat use active plugins automatically?
 
-Yes. `ctx.tools.register` adds a tool to the process-wide registry, and the registry feeds every visible tool's schema into each agent's model request. There's no per-chat opt-in. Any session in a dsh process that loaded the bundle sees the tools, whether it's new or resumed. `sdk-minimal` restricts no tools. Booted with this bundle, its tool list is `pwsh`, `blaze_scan_model`, `blaze_gen_matrix`, `blaze_optimize_matrix`, `blaze_sim_block`, `blaze_gen_op`, `blaze_estimate`, `blaze_integrate`.
+Yes. `ctx.tools.register` adds a tool to the process-wide registry, and the registry feeds every visible tool's schema into each agent's model request. There's no per-chat opt-in. Any session in a dsh process that loaded the bundle sees the tools, whether it's new or resumed. `sdk-minimal` restricts no tools. Booted with this bundle, its tool list is `pwsh`, `blaze_scan_model`, `blaze_gen_matrix`, `blaze_optimize_matrix`, `blaze_sim_block`, `blaze_gen_op`, `blaze_estimate`, `blaze_integrate`, `blaze_view`.
 
 Installing a bundle selects it. To turn it off, take it out of `dsh.profile.bundles`, or set `disabled: true` on a row in the profile's `cordis.patch.yml`, e.g. `- id: blaze-sim-block` / `disabled: true`. Then restart.
 
