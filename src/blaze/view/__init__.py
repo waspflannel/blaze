@@ -13,11 +13,13 @@ gen-matrix's ceil(log2 terms) for a plain block.
 """
 import heapq
 import json
+import math
 import os
 import re
 import shlex
 import shutil
 import subprocess
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 
@@ -261,8 +263,10 @@ def _rel(path: Path, page_dir: Path) -> str:
 def graph_data(block_path: Path, g: Graph, page_dir: Path) -> dict:
     """The page's JSON for one block's graph, with schematic paths relative to `page_dir`."""
     stem = block_stem(block_path)
-    svgs = sorted(int(m[1]) for f in view_dir(block_path).glob(f"{stem}.row*.svg")
-                  if (m := re.fullmatch(re.escape(stem) + r"\.row(\d+)\.svg", f.name)))
+    # Rows whose schematic has a finished tile pyramid, with its size and levels.
+    tiled = {int(m[1]): json.loads((f / "tiles.json").read_text())
+             for f in view_dir(block_path).glob(f"{stem}.row*.tiles")
+             if (m := re.fullmatch(re.escape(stem) + r"\.row(\d+)\.tiles", f.name)) and (f / "tiles.json").is_file()}
     return {
         "file": block_path.as_posix(), "stats": g.stats(),
         "kind": [KINDS.index(k) for k in g.kind], "label": g.label,
@@ -272,9 +276,11 @@ def graph_data(block_path: Path, g: Graph, page_dir: Path) -> dict:
         "adders": g.adders, "depth": g.depth, "level": g.level, "users": g.users,
         "outputs": [{"id": o, "label": g.label[o], "index": b["index"], **r}
                     for o, b, r in zip(g.outputs, g.block["outputs"], g.rows)],
-        # Where `--row N --schematic` writes by default, relative to the page, and the rows already rendered.
+        # Where `--row N --schematic` writes by default, relative to the page, and the rows already tiled.
         "schematic": {"svg": f"{_rel(view_dir(block_path), page_dir)}/{stem}.row{{N}}.svg",
-                      "command": f"blaze view {block_path.as_posix()} --row {{N}} --schematic", "rows": svgs},
+                      "tiles": f"{_rel(view_dir(block_path), page_dir)}/{stem}.row{{N}}.tiles/",
+                      "command": f"blaze view {block_path.as_posix()} --row {{N}} --schematic",
+                      "rows": sorted(tiled), "meta": tiled},
     }
 
 
@@ -441,6 +447,104 @@ def write_schematic(block_path: Path, row: int, svg: Path) -> dict:
     cells: dict[str, int] = {}
     for c in json.loads(js.read_text())["modules"][top]["cells"].values():
         cells[c["type"]] = cells.get(c["type"], 0) + 1
+    tiles = write_tiles(svg)
     k = [o["index"] for o in block["outputs"]].index(row)
     return {"row": row, "module": top, **g.rows[k], "gates": sum(cells.values()), "gate_types": cells,
-            "verilog": str(v), "json": str(js), "svg": str(svg)}
+            "verilog": str(v), "json": str(js), "svg": str(svg), "tiles": str(tiles_dir(svg)), **tiles}
+
+
+TILE, CELL = 512, 2048  # tile edge, and the edge of the square each SVG render covers (whole tiles)
+SHEET = (10, 18, 25)  # the dark sheet behind the gates; the page draws the same #0a1219 under the tiles
+# Recolor netlistsvg's black-on-white for the page: cyan gates, dimmer cyan wires and junction dots.
+DARK_CSS = ("svg{stroke:#3fd8ff}text{fill:#d6e2ec}.splitjoinBody{fill:#3fd8ff}"
+            "svg>line,svg>circle{stroke:#2b7393}svg>circle{fill:#2b7393 !important}")
+SVG_NS, NSVG_NS = "http://www.w3.org/2000/svg", "https://github.com/nturley/netlistsvg"
+
+
+def tiles_dir(svg: Path) -> Path:
+    """`x.row12.svg` -> `x.row12.tiles/`: {z}/{y}/{x}.webp and tiles.json."""
+    return svg.with_suffix(".tiles")
+
+
+def _svg_items(svg: Path) -> tuple[float, float, str, list[tuple[float, float, float, float, str]]]:
+    """(width, height, style, items): each top-level element of a netlistsvg drawing with its bounding box."""
+    import xml.etree.ElementTree as ET
+    ET.register_namespace("", SVG_NS)
+    ET.register_namespace("s", NSVG_NS)
+    root = ET.parse(svg).getroot()
+    w, h = float(root.get("width")), float(root.get("height"))
+    style, items = "", []
+    for el in root:
+        tag = el.tag.rpartition("}")[2]
+        if tag == "style":
+            style = el.text or ""
+            continue
+        try:
+            if tag == "line":
+                xs, ys = (float(el.get("x1")), float(el.get("x2"))), (float(el.get("y1")), float(el.get("y2")))
+            elif tag == "circle":
+                x, y, r = float(el.get("cx")), float(el.get("cy")), float(el.get("r"))
+                xs, ys = (x - r, x + r), (y - r, y + r)
+            else:  # a cell: translate(x,y) and its size, padded for labels and pins
+                m = re.fullmatch(r"translate\(([-\d.e]+),\s*([-\d.e]+)\)", el.get("transform", ""))
+                x, y = float(m[1]), float(m[2])
+                xs = (x - 30, x + float(el.get(f"{{{NSVG_NS}}}width")) + 30)
+                ys = (y - 30, y + float(el.get(f"{{{NSVG_NS}}}height")) + 30)
+        except (TypeError, ValueError):  # anything else is drawn in every cell
+            xs, ys = (0, w), (0, h)
+        items.append((min(xs), max(xs), min(ys), max(ys), ET.tostring(el, encoding="unicode")))
+    return w, h, style, items
+
+
+def _render_cell(job: tuple) -> int:
+    """Render one cell of one level from its SVG elements and write its non-blank tiles. Runs in a worker process."""
+    import pyvips
+    out, style, z, scale, r, c, cw, ch, body = job
+    # Strokes at least 0.8 px wide at every level, so zoomed-out levels show the wiring instead of fading out.
+    doc = (f'<svg xmlns="{SVG_NS}" xmlns:s="{NSVG_NS}" width="{cw}" height="{ch}" '
+           f'viewBox="{c * CELL / scale} {r * CELL / scale} {cw / scale} {ch / scale}"><style>{style}'
+           f'svg{{stroke-width:{max(1, 0.8 / scale)}}}</style>{body}</svg>')
+    img = pyvips.Image.svgload_buffer(doc.encode(), unlimited=True).flatten(background=list(SHEET)).copy_memory()
+    written = 0
+    for ty in range(0, ch, TILE):
+        for tx in range(0, cw, TILE):
+            tile = img.crop(tx, ty, min(TILE, cw - tx), min(TILE, ch - ty))
+            if (tile - list(SHEET)).abs().max() <= 2:
+                continue
+            d = out / str(z) / str(r * CELL // TILE + ty // TILE)
+            d.mkdir(parents=True, exist_ok=True)
+            tile.webpsave(str(d / f"{c * CELL // TILE + tx // TILE}.webp"), Q=80, effort=0)
+            written += 1
+    return written
+
+
+def write_tiles(svg: Path) -> dict:
+    """Cut a netlistsvg drawing into a deep-zoom pyramid of dark-themed 512px WebP tiles next to it.
+
+    Level z has 2**z times the pixels of level 0, which fits in one tile; the last level is the SVG at 1:1. Each
+    level is rendered from the vectors in 2048px cells, each cell from only the elements that cross it, in parallel
+    processes (librsvg barely scales across threads). Blank tiles are not written.
+    """
+    w, h, style, items = _svg_items(svg)
+    style += DARK_CSS
+    out = tiles_dir(svg)
+    shutil.rmtree(out, ignore_errors=True)
+    levels = max(0, math.ceil(math.log2(max(w, h) / TILE))) + 1
+    jobs = []
+    for z in range(levels):
+        scale = 2.0 ** (z - levels + 1)
+        pw, ph, span = math.ceil(w * scale), math.ceil(h * scale), CELL / scale
+        cols = -(-pw // CELL)
+        cells: dict[int, list[str]] = {}
+        for x0, x1, y0, y1, text in items:  # bucket each element into the cells its box crosses (2 units of slack)
+            for r in range(max(0, int((y0 - 2) // span)), min(-(-ph // CELL), int((y1 + 2) // span) + 1)):
+                for c in range(max(0, int((x0 - 2) // span)), min(cols, int((x1 + 2) // span) + 1)):
+                    cells.setdefault(r * cols + c, []).append(text)
+        jobs += [(out, style, z, scale, i // cols, i % cols, min(CELL, pw - i % cols * CELL),
+                  min(CELL, ph - i // cols * CELL), "".join(body)) for i, body in cells.items()]
+    with ProcessPoolExecutor() as pool:
+        count = sum(pool.map(_render_cell, jobs, chunksize=4))
+    meta = {"width": w, "height": h, "levels": levels, "tile": TILE}
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "tiles.json").write_text(json.dumps(meta), newline="\n")  # written last: a partial pyramid has none
+    return {"tile_count": count, "tile_levels": levels}

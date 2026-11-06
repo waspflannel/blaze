@@ -63,19 +63,16 @@ tr.miss td { color:var(--dim); }
 #info code { display:block; padding:6px; background:rgba(0,0,0,.4); border:1px solid var(--line); border-radius:4px; word-break:break-all;
   font:11px var(--mono); margin:4px 0; color:#bfe9ff; }
 #info a { color:var(--cyan); word-break:break-all; }
-#info img { max-width:100%; max-height:300px; object-fit:contain; border-radius:4px; background:#fff; margin-top:4px; }
+#info img { max-width:100%; max-height:300px; object-fit:contain; border-radius:4px; background:#0a1219; border:1px solid var(--line); margin-top:4px; }
 #info .x { float:right; border:0; padding:0 4px; color:var(--muted); }
 #legend { bottom:12px; left:364px; display:flex; flex-wrap:wrap; gap:4px 14px; padding:5px 10px; color:var(--muted); font-size:11px; }
 body.nohud #legend { left:12px; }
 #legend i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
 #readout { bottom:12px; right:12px; padding:5px 10px; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
-#schem { position:fixed; display:none; background:#fff; border-radius:4px; box-shadow:0 0 0 1px var(--cyan), 0 0 24px rgba(63,216,255,.35);
-  pointer-events:none; transform-origin:0 0; }
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
-<img id="schem" alt="">
 <div class="panel" id="bar"><span id="brand">BLAZE</span><span id="crumbs"></span></div>
 <div class="panel" id="ctl">
   <button id="fit" title="Fit the current level (F)">Fit</button><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button>
@@ -323,10 +320,11 @@ function toggleRow(tk, k, fly) {
 // Camera. screen = world * k + (x, y). Flights interpolate zoom geometrically and move the center in step with
 // 1/k, so the view pans while zoomed out and zooms in once it is over the target.
 const cam = { x: 0, y: 0, k: 1 };
+const MAXK = 2e6;  // deep enough to read single gates in a row schematic inside a model-wide view
 let flight = null, wheel = null;
 const freeArea = () => { const l = document.body.classList.contains('bare') ? 0 : 360; return { x: l, y: 56, w: W - l, h: H - 56 }; };
 function fitCam(r, pad = 0.06) {
-  const f = freeArea(), k = clamp(Math.min(f.w * (1 - 2 * pad) / r.w, f.h * (1 - 2 * pad) / r.h), 0.01, 5000);
+  const f = freeArea(), k = clamp(Math.min(f.w * (1 - 2 * pad) / r.w, f.h * (1 - 2 * pad) / r.h), 0.01, MAXK);
   return { k, x: f.x + f.w / 2 - k * (r.x + r.w / 2), y: f.y + f.h / 2 - k * (r.y + r.h / 2) };
 }
 function flyTo(r, pad, ms = 950) { flight = { from: { ...cam }, to: fitCam(r, pad), t0: performance.now(), ms }; wheel = null; dirty = true; }
@@ -349,7 +347,7 @@ function stepCam(now) {
   }
 }
 const moving = () => !!(flight || wheel || pinch || drag && drag.moved);
-function zoomBy(f, ax, ay) { flight = null; wheel = { k: clamp((wheel ? wheel.k : cam.k) * f, 0.01, 5000), ax, ay }; dirty = true; }
+function zoomBy(f, ax, ay) { flight = null; wheel = { k: clamp((wheel ? wheel.k : cam.k) * f, 0.01, MAXK), ax, ay }; dirty = true; }
 const toWorld = (sx, sy) => [(sx - cam.x) / cam.k, (sy - cam.y) / cam.k];
 const scr = r => ({ x: cam.x + cam.k * r.x, y: cam.y + cam.k * r.y, w: cam.k * r.w, h: cam.k * r.h });
 const onScreen = s => s.x < W && s.y < H && s.x + s.w > 0 && s.y + s.h > 0;
@@ -596,28 +594,61 @@ function drawGraph(tk) {
   }
   ctx.globalAlpha = 1;
 }
-// A pre-rendered row schematic, shown beside an output row once it is zoomed in far enough to read.
-let schemRow = null;
-function placeSchematic() {
-  const img = $('schem'), tk = focus, g = tk && tk.g;
+// A row's gate schematic: a pyramid of 512px tiles (written by `--row N --schematic`) drawn beside its output node.
+// Only the tiles on screen are loaded, at the level whose pixels are at least as fine as the screen's; coarser
+// tiles already loaded fill in underneath while finer ones arrive.
+const SCHEM_H = 14 * NODE_H, SCHEM_GAP = 12, SHEET = '#0a1219', schemTiles = new Map();
+function schemTile(url, load) {
+  let t = schemTiles.get(url);
+  if (t) { schemTiles.delete(url); schemTiles.set(url, t); }  // most recently used last
+  else if (load) {
+    t = new Image(); t.onload = () => { dirty = true; }; t.src = url;  // a blank tile isn't written: it fails, draws nothing
+    schemTiles.set(url, t);
+    if (schemTiles.size > 600) schemTiles.delete(schemTiles.keys().next().value);
+  }
+  return t;
+}
+function drawSchematic() {
+  // Of the open graphs' schematics on screen, the one nearest the middle of the free area (0 when the middle is on it).
+  const f = freeArea(), cx = f.x + f.w / 2, cy = f.y + f.h / 2;
   let best = null;
-  if (g && g.svgRows.size && tk.ga > 0.9) {
-    const s = cam.k * g.gs, nh = NODE_H * s, f = freeArea(), cx = f.x + f.w / 2, cy = f.y + f.h / 2;
-    if (nh >= 12) for (const o of g.d.outputs) {
+  for (const tk of tiles) {
+    tk.schem = null;
+    const g = tk.g;
+    if (!g || !g.svgRows.size || tk.ga < 0.9) continue;
+    const s = cam.k * g.gs, ex = cam.x + cam.k * g.ox, ey = cam.y + cam.k * g.oy;
+    if (NODE_H * s < 4) continue;
+    for (const o of g.d.outputs) {
       if (!g.svgRows.has(o.index)) continue;
-      const x = cam.x + cam.k * g.ox + s * g.gx[o.id], y = cam.y + cam.k * g.oy + s * g.gy[o.id];
-      if (x > W || y > H || x + NODE_W * s < 0 || y + nh < 0) continue;
-      const dd = Math.hypot(x - cx, y - cy);
-      if (!best || dd < best.dd) best = { o, x: x + NODE_W * s + 14, y: y + nh / 2, h: clamp(nh * 14, 200, H * 0.75), dd };
+      const m = g.d.schematic.meta[o.index], h = SCHEM_H * s, w = h * m.width / m.height;
+      const x = ex + s * (g.gx[o.id] + NODE_W + SCHEM_GAP), y = ey + s * (g.gy[o.id] + NODE_H / 2) - h / 2;
+      if (x > W || y > H || x + w < 0 || y + h < 0) continue;
+      const dd = Math.hypot(Math.max(x - cx, 0, cx - x - w), Math.max(y - cy, 0, cy - y - h));
+      if (!best || dd < best.dd) best = { tk, g, s, ex, o, m, x, y, w, h, dd };
     }
   }
-  if (!best || img.dataset.bad === String(best.o.index)) { img.style.display = 'none'; return; }
-  const url = g.d.schematic.svg.replace('{N}', best.o.index);
-  if (schemRow !== url) { schemRow = url; img.dataset.row = best.o.index; img.src = url; }
-  img.style.display = 'block'; img.style.height = best.h + 'px';
-  img.style.left = best.x + 'px'; img.style.top = (best.y - best.h / 2) + 'px';
+  if (!best) return;
+  const { tk, g, s, ex, o, m, x, y, w, h } = best, base = g.d.schematic.tiles.replace('{N}', o.index), top = m.levels - 1;
+  // While the middle of the screen is on the row, the schematic or near it, this graph keeps the focus.
+  const nx = ex + s * g.gx[o.id], pad = Math.max(w, h) / 2;
+  tk.schem = { x: (nx - pad - cam.x) / cam.k, y: (y - pad - cam.y) / cam.k, w: (x + w - nx + 2 * pad) / cam.k, h: (h + 2 * pad) / cam.k };
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalAlpha = 1;
+  ctx.fillStyle = SHEET; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = rgba(C.cyan, 0.6); ctx.lineWidth = 1; ctx.strokeRect(x - 0.5, y - 0.5, w + 1, h + 1);
+  if (h > 80) text(`${o.label} gates`, x, y - 6, 11, C.cyan);
+  const want = clamp(top + Math.ceil(Math.log2(dpr * w / m.width)), 0, top);
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  for (let z = 0; z <= want; z++) {
+    const units = m.tile * 2 ** (top - z), span = units * w / m.width;  // one tile: SVG units, screen pixels
+    const c0 = Math.max(0, Math.floor(-x / span)), c1 = Math.min(Math.ceil(m.width / units), Math.ceil((W - x) / span));
+    const r0 = Math.max(0, Math.floor(-y / span)), r1 = Math.min(Math.ceil(m.height / units), Math.ceil((H - y) / span));
+    for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) {
+      const t = schemTile(`${base}${z}/${r}/${c}.webp`, z === want || z === 0);
+      if (t && t.complete && t.naturalWidth) ctx.drawImage(t, x + c * span, y + r * span, t.naturalWidth * span / m.tile, t.naturalHeight * span / m.tile);
+    }
+  }
+  ctx.restore();
 }
-$('schem').onerror = e => { e.target.dataset.bad = e.target.dataset.row; e.target.style.display = 'none'; };
 
 function draw(now) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -633,9 +664,10 @@ function draw(now) {
   for (const tk of tiles) if (tk.ga > 0.01) { drawGraph(tk); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
   // Focus: the open graph under the middle of the free area; the panels follow it.
   const f = freeArea(), [wx, wy] = toWorld(f.x + f.w / 2, f.y + f.h / 2);
-  const nf = D.mode === 'block' ? tiles[0] : tiles.find(tk => tk.ga >= 0.5 && inside(tk, wx, wy)) || null;
+  const nf = D.mode === 'block' ? tiles[0] : tiles.find(tk => tk.schem && inside(tk.schem, wx, wy))
+    || tiles.find(tk => tk.ga >= 0.5 && inside(tk, wx, wy)) || null;
   if (nf !== focus) { focus = nf; if (focus) selectTile(focus); renderHud(); }
-  placeSchematic();
+  drawSchematic();
   crumbs(wx, wy);
   const ro = `x ${wx.toFixed(0)}  y ${wy.toFixed(0)}  ·  zoom ×${cam.k < 10 ? cam.k.toFixed(2) : cam.k.toFixed(0)}`;
   if ($('readout').textContent !== ro) $('readout').textContent = ro;
@@ -778,11 +810,11 @@ function showTile(tk) {
 function showOutput(tk, k) {
   if (k === null) return hideInfo();
   const d = D.graphs[tk.t.graph], o = d.outputs[k], svg = d.schematic.svg.replace('{N}', o.index), cmd = d.schematic.command.replace('{N}', o.index);
-  const have = d.schematic.rows.includes(o.index);
+  const have = d.schematic.rows.includes(o.index), overview = d.schematic.tiles.replace('{N}', o.index) + '0/0/0.webp';
   card(`<h2>${esc(o.label)}</h2>` + dl([['adders in cone', fmt(o.adders)], ['shared adders', fmt(o.shared_adders)],
     ['depth', o.depth + ' adder levels'], ['cone nodes', fmt(o.nodes)]]) +
     `<b>Gate schematic</b>` + (have
-      ? `<div style="color:var(--muted)">Rendered. Zoom in on ${esc(o.label)} to see it beside the row, or open:</div><a href="${esc(svg)}" target="_blank">${esc(svg)}</a><div><img src="${esc(svg)}" alt="" onerror="this.remove()"></div>`
+      ? `<div style="color:var(--muted)">Rendered. Zoom in on ${esc(o.label)} to see it beside the row, or open:</div><a href="${esc(svg)}" target="_blank">${esc(svg)}</a><div><img src="${esc(overview)}" alt="" onerror="this.remove()"></div>`
       : `<div style="color:var(--muted)">Render it once with the CLI (needs yosys and netlistsvg), then rebuild this page:</div><code>${esc(cmd)}</code>`));
 }
 function showNode(tk, v) {
@@ -815,6 +847,8 @@ function hitAt(sx, sy) {
 }
 function click(sx, sy) {
   for (const tk of tiles) if (tk.ga > 0.5 && tk.g) { const v = hitNode(tk, sx, sy); if (v >= 0) { selectTile(tk); return showNode(tk, v); } }
+  const [wx, wy] = toWorld(sx, sy);
+  if (focus?.schem && inside(focus.schem, wx, wy)) return;  // on a schematic: nothing to open
   const { tk, L } = hitAt(sx, sy), f = freeArea();
   if (L && L.w * cam.k < f.w * 0.5) return flyTo(L, 0.04);
   if (tk) {
@@ -837,7 +871,7 @@ cv.addEventListener('pointerdown', e => {
 cv.addEventListener('pointermove', e => {
   if (pointers.has(e.pointerId)) pointers.set(e.pointerId, [e.clientX, e.clientY]);
   if (pinch && pointers.size === 2) {
-    const [a, b] = [...pointers.values()], k = clamp(pinch.k * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d, 0.01, 5000);
+    const [a, b] = [...pointers.values()], k = clamp(pinch.k * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d, 0.01, MAXK);
     const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
     cam.x = mx - (mx - cam.x) * k / cam.k; cam.y = my - (my - cam.y) * k / cam.k; cam.k = k; flight = wheel = null; dirty = true;
     return;

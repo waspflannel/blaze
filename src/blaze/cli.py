@@ -263,6 +263,7 @@ def view(path: Path | None, model: Path | None, checkpoint: Path | None, out: Pa
             f"({r['shared_adders']:,} shared), depth {r['depth']}",
             f"gates    {r['gates']:,} generic gates from yosys ({gates})",
             f"wrote    {r['verilog']}, {r['json']}, {r['svg']}",
+            f"tiles    {r['tile_count']:,} in {r['tile_levels']} zoom levels under {r['tiles']}",
         ], as_json)
         return
     out = out or view_dir(path) / f"{block_stem(path)}.html"
