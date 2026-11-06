@@ -61,11 +61,14 @@ blaze view build/stories260K/layer0/l0_wq_matvec.v --row 12 --schematic
 # -> build/stories260K/layer0/view/l0_wq_matvec.row12.v     the cone as a standalone module
 #    build/stories260K/layer0/view/l0_wq_matvec.row12.json  yosys netlist
 #    build/stories260K/layer0/view/l0_wq_matvec.row12.svg   netlistsvg drawing
+#    build/stories260K/layer0/view/l0_wq_matvec.row12.tiles/ the drawing as deep-zoom tiles for the page
 ```
 
 This copies the input port and only the statements row 12 depends on into a module `<module>_row12` with one output `y`. Yosys synthesizes it to generic gates (`synth -flatten -noabc; opt_clean -purge; write_json`) and netlistsvg draws the JSON as SVG. ABC is skipped because it took over 3 minutes on one stories260K row, while the plain mapping takes under a second.
 
-The page can't run tools, so a row's details panel shows this command. Once the SVG exists at its default path, rebuild the page: the row's output node gets a `⌁ gates` badge, the details panel shows the drawing, and zooming in on that row shows the schematic beside it.
+A row's drawing is far too big to show as one image (row 0 of stories260K wq is 32,361 x 138,198 px), so the command also cuts it into a tile pyramid: `{z}/{y}/{x}.webp`, 512 px tiles, recolored for the dark page, from level 0 (the whole drawing in one tile) to the last level at the SVG's own 1:1 scale, plus `tiles.json` with the size and level count. Each level is rendered from the vectors in 2048 px cells, each cell from only the SVG elements that cross it, in parallel processes, with strokes kept at least 0.8 px wide so zoomed-out levels still show the wiring. Blank tiles aren't written. This uses [pyvips](https://github.com/libvips/pyvips) (`pip install -e .` installs it with its bundled libvips).
+
+The page can't run tools, so a row's details panel shows this command. Once the tiles exist at the default path, rebuild the page: the row's output node gets a `⌁ gates` badge, the details panel shows the level-0 overview and links the SVG, and the schematic sits beside the row, 14 rows tall. Zooming in on it is continuous, from the row node to the whole schematic to single gates: the page loads only the tiles on screen, from the level whose pixels are at least as fine as the screen's, and draws coarser tiles it already has underneath while finer ones arrive. The tiles are sidecar files read by relative path, so keep the `view/` directories next to the page.
 
 Setup:
 
@@ -74,7 +77,9 @@ Setup:
 
 If either is missing, the command stops with an install message before writing anything.
 
-![Zoomed in on y[12]: its pre-rendered gate schematic beside the row](img/view-gates.jpg)
+![Zoomed in on y[0]: its whole gate schematic beside the row](img/view-gates.jpg)
+
+![Zoomed in further on the same schematic: single XOR and NOT gates](img/view-gates-zoom.jpg)
 
 ## stories260K layer 0 wq
 
@@ -90,6 +95,7 @@ From `blaze gen-matrix --layer 0 --tensor wq` at 8 bits (64 x 64, 3,961 nonzero 
 | HTML | 111 KB |
 | row 12 cone | 144 nodes, 117 adders, depth 7 |
 | row 12 gates | 7,753 (2,932 AND, 421 NOT, 1,469 OR, 2,931 XOR); about 12 s for yosys + netlistsvg, 8 MB SVG |
+| row 0 tiles | 6,727 gates, 32,361 x 138,198 px SVG: 18,755 tiles in 10 levels, about 35 s on 16 cores, 64 MB |
 
 ## stories260K layer 0 workspace
 
