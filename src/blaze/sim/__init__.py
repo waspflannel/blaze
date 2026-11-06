@@ -154,7 +154,7 @@ def _unpack(packed: int, port: Port) -> list[int]:
 
 def simulate(verilog: Path, block: Block, vectors: int, seed: int, workdir: Path) -> dict:
     """Compile `verilog` with Verilator, drive seeded vectors, compare every output with the reference."""
-    top = verilog.stem
+    top = verilog.name.split(".")[0]  # l0_wq_matvec.opt.v holds module l0_wq_matvec, a drop-in for the .v
     text = verilog.read_text()
     ports = module_ports(text, top)
     expected = {p.name: ("input", p.width) for p in block.inputs}

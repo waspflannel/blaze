@@ -5,6 +5,8 @@
       name: ./scan-model.ts
     - id: blaze-gen-matrix
       name: ./gen-matrix.ts
+    - id: blaze-optimize-matrix
+      name: ./optimize-matrix.ts
     - id: blaze-sim-block
       name: ./sim-block.ts
     - id: blaze-gen-op

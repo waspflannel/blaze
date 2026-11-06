@@ -40,6 +40,7 @@ blaze adds `~/tools/oss-cad-suite/bin` to PATH for its WSL calls, so a newer rel
 - `src/blaze/reference` - reference results generated hardware must match (integer matvec now; model activations later)
 - `src/blaze/library` - hardware component templates (Verilog in `library/verilog/`)
 - `src/blaze/generate` - weights -> shift/add equations -> Verilog (`gen-matrix`)
+- `src/blaze/optimize` - common subexpression sharing for gen-matrix blocks (`optimize-matrix`, see [docs/optimizer.md](docs/optimizer.md))
 - `src/blaze/sim` - Verilator block compare
 - `src/blaze/integrate` - verified blocks -> full chip Verilog, its integer reference, token-exact chip simulation (see [docs/integrator.md](docs/integrator.md))
 - `src/blaze/pd` - Yosys/OpenLane wrappers

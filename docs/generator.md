@@ -20,7 +20,7 @@ This writes `build/stories260K/layer0/l0_wq_matvec.v` and `build/stories260K/lay
 
 - **Inputs** `x[j]` are signed 8-bit (-128..127). The activation scale is chosen by whatever drives them, so `y_real ~= scale_w * scale_x * y`.
 - **Outputs** `y[i]` are signed `ACC_W`-bit, with `ACC_W = bit_length(128 * max_i sum_j |q_ij|) + 1`. No input can produce a magnitude above `128 * sum_j |q_ij|`, so the sum is exact and can never overflow. This is computed from the actual weights; the shape-only worst case would be `8 + 8 + ceil(log2(in))` bits.
-- **Adders** counts two-input add/subtract operations, which is (CSD terms - 1) for each non-empty row. A leading minus is a negation and isn't counted. No sharing of subexpressions is done yet.
+- **Adders** counts two-input add/subtract operations, which is (CSD terms - 1) for each non-empty row. A leading minus is a negation and isn't counted. gen-matrix shares no subexpressions; `optimize-matrix` does ([optimizer.md](optimizer.md)).
 
 ### Verilog shape
 

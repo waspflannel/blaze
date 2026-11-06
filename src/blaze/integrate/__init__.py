@@ -17,6 +17,7 @@ from blaze.generate import generate_matrix, quantize
 from blaze.integrate.model import BOS, decode, float_generate
 from blaze.library import (EXP_FRAC, IN_FRAC, ROPE_FRAC, SILU_SW, VERILOG_DIR, Block, _clog2, _hex, _mul, build_op,
                            exp_lut, residual_add, rmsnorm, rope, silu_mul)
+from blaze.optimize import optimize_matrix
 from blaze.reference import matvec_int
 from blaze.report import ADDER_NS, SCALE_5NM, SKY130_CLOCK_MHZ, _levels
 from blaze.sim import MATMUL_TENSORS, _run
@@ -60,6 +61,7 @@ class Mat:
     width: int  # signed output element width
     depth: int
     verilog: str
+    optimized: bool = False  # an optimize-matrix file
 
 
 @dataclass
@@ -99,19 +101,30 @@ def _block_path(blocks: Path, layer: int, name: str) -> Path:
     return flat if flat.is_file() and not nested.is_file() else nested
 
 
+def _matrix_path(blocks: Path, layer: int, tensor: str) -> Path:
+    """The optimize-matrix file when there is one (the block agent keeps it only if it passed), else gen-matrix's."""
+    opt = _block_path(blocks, layer, f"l{layer}_{tensor}_matvec.opt.v")
+    return opt if opt.is_file() else _block_path(blocks, layer, f"l{layer}_{tensor}_matvec.v")
+
+
 def _matrix(checkpoint: Path, blocks: Path, layer: int, tensor: str) -> Mat:
-    """A verified gen-matrix file, checked to be exactly what gen-matrix writes for this checkpoint."""
+    """A verified matrix file, checked to be exactly what gen-matrix (or optimize-matrix) writes for this checkpoint."""
     module = f"l{layer}_{tensor}_matvec"
-    path = _block_path(blocks, layer, f"{module}.v")
+    path = _matrix_path(blocks, layer, tensor)
+    optimized = path.name.endswith(".opt.v")
     text = path.read_text()
     m = re.search(r"^// blaze-stats: (.*)$", text, re.M)
     bits = json.loads(m[1]).get("bits", 8) if m else 8
     q, scale = quantize(load_matrix(checkpoint, layer, tensor), bits)
-    verilog, _, stats = generate_matrix(q, scale, module, f"{checkpoint.name} layer {layer} {tensor}", bits)
+    source = f"{checkpoint.name} layer {layer} {tensor}"
+    if optimized:
+        verilog, stats = optimize_matrix(q, scale, module, source, bits)
+    else:
+        verilog, _, stats = generate_matrix(q, scale, module, source, bits)
     if verilog != text:
-        raise ValueError(f"{path} is not gen-matrix output for {checkpoint.name} layer {layer} {tensor} at {bits} "
-                         "bits; regenerate and re-verify it")
-    return Mat(module, q.astype(np.int64), scale, bits, stats["acc_width"], stats["depth"], text)
+        tool = "optimize-matrix" if optimized else "gen-matrix"
+        raise ValueError(f"{path} is not {tool} output for {source} at {bits} bits; regenerate and re-verify it")
+    return Mat(module, q.astype(np.int64), scale, bits, stats["acc_width"], stats["depth"], text, optimized)
 
 
 def _check_ops(checkpoint: Path, blocks: Path, layer: int) -> None:
@@ -129,8 +142,9 @@ def plan_chip(checkpoint: Path, blocks: Path, n_layers: int) -> Chip:
         raise ValueError(f"--layers must be 1..{cfg.n_layers}, got {n_layers}")
     missing = []
     for i in range(n_layers):
-        names = [f"l{i}_{t}_matvec.v" for t in MATMUL_TENSORS] + [f"l{i}_{op}.v" for op in OPS]
-        missing += [f"layer{i}/{name}" for name in names if not _block_path(blocks, i, name).is_file()]
+        paths = [_matrix_path(blocks, i, t) for t in MATMUL_TENSORS]
+        paths += [_block_path(blocks, i, f"l{i}_{op}.v") for op in OPS]
+        missing += [f"layer{i}/{path.name}" for path in paths if not path.is_file()]
     if missing:
         raise ValueError(f"{blocks} is missing {len(missing)} verified block files: {', '.join(missing)}")
 
@@ -552,6 +566,7 @@ def integrate(checkpoint: Path, blocks: Path, n_layers: int | None, steps: int, 
         "chip": str(chip_path), "model": checkpoint.name, "layers": n_layers, "model_layers": cfg.n_layers,
         "blocks": str(blocks),
         "bits": {f"l{i}": {t: m.bits for t, m in ly.mats.items()} for i, ly in enumerate(chip.layers)},
+        "optimized": {f"l{i}": [t for t, m in ly.mats.items() if m.optimized] for i, ly in enumerate(chip.layers)},
         "steps": steps, "inputs": inputs,
         "reference_tokens": [t for t, _ in ref], "reference_text": text([t for t, _ in ref]),
         "float_tokens": float_tokens,
