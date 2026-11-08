@@ -1,6 +1,6 @@
 ---
 name: block-agent
-description: Given a llama2.c weights file, compile every layer into Verilog blocks with the blaze_* tools, verify every block against its reference with sim-block, integrate the verified blocks into a full chip and check it token-exact, then report the estimates.
+description: Given a llama2.c weights file, compile every layer into Verilog blocks with the blaze_* tools, verify every block against its reference with sim-block, integrate the verified blocks into a full chip and check it token-exact, report the estimates, and, when the user names an FPGA target and gives a board LPF, export a bitstream.
 whenToUse: The user points at a model or weights file and asks to build, compile, generate or verify it (or a layer of it) with blaze, or asks for the "block agent".
 ---
 
@@ -28,6 +28,7 @@ Pass the checkpoint, layer and an output directory on every call; don't rely on 
 4. **Tool errors** (bad path, missing Verilator): report blaze's message and stop. Don't work around them.
 5. **Estimate.** Call `blaze_estimate` on each final block file, and once on the spec path for the whole model. The spec estimate prices every matmul at 8 bits, so label it as the int8 baseline.
 6. **Integrate.** Once every block of layers 0..N-1 passes, call `blaze_integrate` once with `model`, `blocks` = the output directory above, `layers` = N, `steps` and `out` = `build/<model file stem>/chip/`. N is n_layers unless the task names fewer layers, and they always start at layer 0. Choose `steps` (1..seq_len) and say why. The chip passes only when `match` is true. A tool error naming a stale or missing block file means regenerating and re-verifying exactly those files, then integrating again. A result with `match: false` is a fault in the integrator's own parts (the blocks were already checked byte for byte), so don't regenerate blocks or change bit widths to chase it: report `first_mismatch` (step, expected, got) and mark the result `FAIL`. Skip this step only if some block in layers 0..N-1 never passed.
+7. **FPGA export (only when asked).** The weights are not a bitstream by themselves; a bitstream exists only for one generated top, one target and one board. Run this step only when the user names the target and gives an LPF path. The only target is `ecp5-85f` (LFE5U-85F, the ULX3S 85F); if the user names another, say it isn't supported and stop. Never write, edit or guess an LPF or pins. Call `blaze_fpga_export` with `file`, `target`, `lpf` and `model`. For the chip, `file` is `build/<model file stem>/chip/blaze_chip.v` and only after step 6 matched; the whole stories260K chip is not expected to fit 84K LUTs, so a place-and-route failure is a normal outcome to report. For one matrix block, pass its final `.v` or `.opt.v` with `wrap: "serial"` (the block's buses can't be pinned out). Report UNSUPPORTED, missing tools and tool failures as blaze states them; don't retry with other settings unless the user asks. Export never replaces the token-exact check in step 6.
 
 ## Report
 
@@ -41,6 +42,7 @@ End with this, in plain markdown:
 6. **Whole model (int8 baseline)**: adders, cycles per token, and tok/s at SKY130 and 5nm from the spec estimate.
 7. **Chip**: layers integrated, steps, `match` (token-exact vs the integer reference) or the first mismatch, the chip's tokens as text, measured cycles per token (first, last, mean), tok/s at SKY130 and 5nm, and the float agreement count as information.
 8. **Files**: the output directory, the final `.v` or `.opt.v` paths and the chip file.
+9. **FPGA** (only if step 7 ran): file, target, wrapper, bitstream path or the error, Fmax and utilization as returned (`unavailable` stays `unavailable`). Say the bitstream was not run on hardware and the wrapper, if used, is unvalidated.
 
 If the user asks to see the chip or the model's blocks, call `blaze_view` with `model` = the output directory above and give them the HTML path: a pan/zoom workspace of every block generated so far, with the rest as placeholders. To inspect one matrix block's circuit, call it with `file` = its `.v` or `.opt.v`. Both pages are for people to open and don't change any pass criteria. A gate schematic of one output row needs `row` and `schematic: true` plus yosys and netlistsvg; if the tool reports either missing, pass its install message on.
 

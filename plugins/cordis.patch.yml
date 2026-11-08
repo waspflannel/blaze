@@ -17,3 +17,5 @@
       name: ./integrate.ts
     - id: blaze-view
       name: ./view.ts
+    - id: blaze-fpga-export
+      name: ./fpga-export.ts

@@ -11,11 +11,12 @@ The `blaze` CLI as DeepSeek Harness (`dsh`) tools. `blaze-dsh` is one dsh bundle
 | `blaze_gen_op` | `blaze gen-op --json` | module, file, ports, output scale, formats, error vs float, cost estimate |
 | `blaze_estimate` | `blaze estimate --json` | adders, depth, cycles, tok/s or evals/s, assumptions, per-op breakdown |
 | `blaze_integrate` | `blaze integrate --json` | chip path, `match`, `first_mismatch` (step, expected, got), reference and chip tokens and text, cycles per token, tok/s, bits per matrix |
+| `blaze_fpga_export` | `blaze fpga --json` | bitstream path, target and device, input/LPF/weights sha256, tool versions, Fmax and utilization from nextpnr or `unavailable`; a missing tool, an UNSUPPORTED interface or a failed tool run is an error ([docs/fpga.md](../docs/fpga.md)) |
 | `blaze_view` | `blaze view --json` | with `model`: HTML path, layers, blocks generated, matrices optimized, adders; with `file`: HTML path, inputs, outputs, adders, shared adders, max depth, graph nodes; with `row` + `schematic`: the row's adders, depth, gate counts and `.v`/`.json`/`.svg` paths |
 
 A failed command (bad path, wrong ports) comes back as a tool error with blaze's own message. A simulation or token mismatch is a normal result with `match: false`, not an error. `sim-block`, `gen-op` and `estimate` need a `blaze` that has those commands (PR #4). `scan-model` and `gen-matrix` have no `--json`, so their tools read the written `spec.json` and the summary lines.
 
-Files: `blaze.ts` runs `blaze` (shared), one `<command>.ts` per tool, `cordis.patch.yml` lists the seven plugin rows, and `package.json` declares the bundle. `codex.patch.yml` is the `blaze` profile's patch for running the block agent on Codex ([docs/block-agent.md](../docs/block-agent.md)).
+Files: `blaze.ts` runs `blaze` (shared), one `<command>.ts` per tool, `cordis.patch.yml` lists the plugin rows, and `package.json` declares the bundle. `codex.patch.yml` is the `blaze` profile's patch for running the block agent on Codex ([docs/block-agent.md](../docs/block-agent.md)).
 
 ## How dsh loads plugins
 
@@ -29,7 +30,7 @@ Checked against the installed dsh 0.2.0-rc.2 (its package READMEs, plus booting 
 
 ### Does a new chat use active plugins automatically?
 
-Yes. `ctx.tools.register` adds a tool to the process-wide registry, and the registry feeds every visible tool's schema into each agent's model request. There's no per-chat opt-in. Any session in a dsh process that loaded the bundle sees the tools, whether it's new or resumed. `sdk-minimal` restricts no tools. Booted with this bundle, its tool list is `pwsh`, `blaze_scan_model`, `blaze_gen_matrix`, `blaze_optimize_matrix`, `blaze_sim_block`, `blaze_gen_op`, `blaze_estimate`, `blaze_integrate`, `blaze_view`.
+Yes. `ctx.tools.register` adds a tool to the process-wide registry, and the registry feeds every visible tool's schema into each agent's model request. There's no per-chat opt-in. Any session in a dsh process that loaded the bundle sees the tools, whether it's new or resumed. `sdk-minimal` restricts no tools. Booted with this bundle, its tool list is `pwsh`, `blaze_scan_model`, `blaze_gen_matrix`, `blaze_optimize_matrix`, `blaze_sim_block`, `blaze_gen_op`, `blaze_estimate`, `blaze_integrate`, `blaze_view`. That list was checked before `blaze_fpga_export` was added; it registers the same way, but hasn't been booted.
 
 Installing a bundle selects it. To turn it off, take it out of `dsh.profile.bundles`, or set `disabled: true` on a row in the profile's `cordis.patch.yml`, e.g. `- id: blaze-sim-block` / `disabled: true`. Then restart.
 

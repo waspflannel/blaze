@@ -8,6 +8,7 @@ from pathlib import Path
 
 from huggingface_hub import hf_hub_download
 
+from blaze.fpga import TARGET, export as export_fpga
 from blaze.generate import generate_matrix, quant_error, quantize
 from blaze.integrate import integrate as integrate_chip
 from blaze.library import BUILDERS, build_op, measure_error
@@ -278,6 +279,24 @@ def view(path: Path | None, model: Path | None, checkpoint: Path | None, out: Pa
     ], as_json)
 
 
+def fpga(path: Path, target: str, lpf: Path, top: str | None, wrap: str | None, model: Path | None,
+         out: Path | None, as_json: bool) -> None:
+    r = export_fpga(path, target, lpf, top, wrap, model, out or path.parent / "fpga")
+    fmax = r["fmax_mhz"]
+    if isinstance(fmax, dict):
+        fmax = ", ".join(f"{clk} {v['achieved']:.1f} MHz (target {v['constraint']:.1f})" for clk, v in fmax.items())
+    used = r["utilization"]
+    if isinstance(used, dict):
+        used = ", ".join(f"{k} {v['used']}/{v['available']}" for k, v in used.items() if v["used"])
+    _emit(r, [
+        f"fpga     {r['block']} on {r['target']} ({r['device']}){' behind the unvalidated serial wrapper' if r['wrapper'] else ''}",
+        f"fmax     {fmax} (nextpnr, single-cycle paths)",
+        f"used     {used}",
+        f"tools    {'; '.join(r['tools'].values())}",
+        f"wrote    {r['bitstream']} (not run on hardware)",
+    ], as_json)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="blaze")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -348,6 +367,18 @@ def main() -> None:
     v.add_argument("--schematic", action="store_true",
                    help="synthesize --row's fan-in cone to gates (yosys) and draw it as SVG (netlistsvg)")
     v.add_argument("--json", action="store_true", help="print the summary as JSON")
+    x = sub.add_parser("fpga", help="synthesize, place and route one generated top for an FPGA and pack its bitstream")
+    x.add_argument("file", type=Path, help="generated top, e.g. build/stories260K/chip/blaze_chip.v or a matrix .v")
+    x.add_argument("--target", required=True, choices=[TARGET],
+                   help="FPGA profile; ecp5-85f = LFE5U-85F-6BG381C (ULX3S 85F) via yosys, nextpnr-ecp5, ecppack")
+    x.add_argument("--lpf", type=Path, required=True,
+                   help="your board's LPF: a LOCATE COMP line for every top-level port bit, plus FREQUENCY for clk")
+    x.add_argument("--top", help="top module (default: file name without .v / .opt.v)")
+    x.add_argument("--wrap", choices=["serial"],
+                   help="put a combinational block behind a 5-pin shift-register top (unvalidated)")
+    x.add_argument("--model", type=Path, help="checkpoint the Verilog came from, recorded with its sha256 in the report")
+    x.add_argument("--out", type=Path, help="output directory (default: fpga/ next to the file)")
+    x.add_argument("--json", action="store_true", help="print the report as JSON")
     a = p.parse_args()
 
     if a.cmd == "fetch-model":
@@ -394,3 +425,8 @@ def main() -> None:
             view(a.file, a.model, a.checkpoint, a.out, a.row, a.schematic, a.json)
         except (OSError, ValueError, RuntimeError) as e:
             sys.exit(f"blaze view: {e}")
+    elif a.cmd == "fpga":
+        try:
+            fpga(a.file, a.target, a.lpf, a.top, a.wrap, a.model, a.out, a.json)
+        except (OSError, ValueError, RuntimeError) as e:
+            sys.exit(f"blaze fpga: {e}")

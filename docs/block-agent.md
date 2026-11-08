@@ -8,7 +8,8 @@ The block agent is a dsh skill, [`.dsh/skills/block-agent.md`](../.dsh/skills/bl
    - runs `optimize-matrix` on every matrix after `gen-matrix` and simulates the `.opt.v` as well; it keeps the optimized file only if it matches ([optimizer.md](optimizer.md)),
 4. on a mismatch, retries however it judges best (regenerate, change width, more vectors) until the block matches,
 5. once every block passes, calls `blaze_integrate` to stitch them into one chip, simulate it in Verilator and check its generated tokens token-exact against the integer reference model ([integrator.md](integrator.md)),
-6. reports per-block, per-layer, whole-model and chip results, including the chip's measured cycles per token.
+6. reports per-block, per-layer, whole-model and chip results, including the chip's measured cycles per token,
+7. only when you name an FPGA target and give your board's LPF, calls `blaze_fpga_export` on the chip or one block for a bitstream ([fpga.md](fpga.md)).
 
 There is no default layer, no fixed bit width, no attempt limit, and no adder or weight-error limit. Adders, weight error and estimates are reported as information. A block passes only when its simulation matches, and the chip passes only when its tokens match the reference. The one input is the weights. You can still narrow a run in the task, e.g. `... layer 0 only`. `gen-matrix --bits` accepts 2..8. Ops have fixed int8 inputs.
 

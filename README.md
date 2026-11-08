@@ -8,6 +8,8 @@ Weights-to-silicon compiler: takes open model weights and compiles them into a f
 
 See [docs/design.md](docs/design.md). Status: early. The CLI can download a checkpoint, scan it into a spec, turn weight matrices and fixed-point op templates into Verilog, simulate a block against its Python reference with Verilator, estimate adders and tok/s, and integrate verified blocks into a full chip that generates tokens in Verilator, token-exact against an integer reference model. Every command is described in [docs/tools.md](docs/tools.md).
 
+The last step, `blaze fpga`, packs one generated top into a Lattice ECP5 bitstream with the open Yosys/nextpnr flow. It is source only, not yet run or validated: see [docs/fpga.md](docs/fpga.md).
+
 ## Setup
 
 Python 3.10+. From the repo root:

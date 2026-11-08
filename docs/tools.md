@@ -88,6 +88,15 @@ blaze integrate --layers 1 --steps 32   # blocks from build/stories260K/layerN -
 
 This stitches the verified blocks of the first `--layers` layers (default: all) into one chip, `blaze_chip`. The chip adds the embedding ROM, attention with a KV cache per layer, the final norm, the classifier and a control FSM. The command then simulates the chip with Verilator, runs `--steps` positions (BOS, then the optional `--prompt` token ids, then each output token fed back, greedy), and compares every token and its logit with the Python integer reference. It reports the match, the first mismatch, the tokens as text, and cycles per token measured in the simulation. `--blocks` defaults to `build/<model file stem>` and has to hold all 12 block files of every included layer under `layer<N>/`, exactly as `gen-matrix` and `gen-op` wrote them. A matrix's `.opt.v` is used in place of its `.v` when it exists, checked the same way against what `optimize-matrix` writes, and the summary's `opt` line lists those matrices. A flat directory (the old `build/agent/<model file stem>/` layout) still works. `--out` defaults to `build/<model file stem>/chip`. `--no-sim` only writes the Verilog. The exit code is 1 on a mismatch. Numerics, control and results are in [integrator.md](integrator.md). Like `sim-block`, it compiles and runs Verilog, so only use blocks you generated.
 
+## fpga
+
+```powershell
+blaze fpga build/stories260K/chip/blaze_chip.v --target ecp5-85f --lpf my-ulx3s.lpf --model models/stories260K/stories260K.bin
+blaze fpga build/stories260K/layer0/l0_wq_matvec.opt.v --target ecp5-85f --lpf my-ulx3s.lpf --wrap serial --json
+```
+
+This is the last step: one generated top becomes a Lattice ECP5 bitstream through Yosys (`synth_ecp5`), nextpnr-ecp5 and ecppack. `--target` and `--lpf` are required. `ecp5-85f` (the ULX3S 85F part) is the only target, and pins come only from your LPF. A top with port bits the LPF doesn't `LOCATE` is rejected as UNSUPPORTED. `--wrap serial` puts a combinational block behind an unvalidated 5-pin shift-register top. The run succeeds only when ecppack writes `<top>.bit` (`<top>.serial.bit` when wrapped). The report next to it, `<top>.fpga.json`, has the hashes, tool versions, Fmax and utilization. **Source only: never run end to end or on hardware.** See [fpga.md](fpga.md).
+
 ## view
 
 ```powershell

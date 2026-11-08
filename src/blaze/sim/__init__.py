@@ -45,7 +45,7 @@ def module_ports(text: str, top: str) -> dict[str, tuple[str, int]]:
     if not m:
         raise ValueError(f"no module {top!r} in the file (the top module must match the file name)")
     ports = {}
-    for d, msb, name in re.findall(r"\b(input|output)\s+(?:wire\s+)?(?:\[(\d+):0\]\s*)?(\w+)", m[1]):
+    for d, msb, name in re.findall(r"\b(input|output)\s+(?:(?:wire|reg)\s+)?(?:signed\s+)?(?:\[(\d+):0\]\s*)?(\w+)", m[1]):
         ports[name] = (d, int(msb) + 1 if msb else 1)
     return ports
 
