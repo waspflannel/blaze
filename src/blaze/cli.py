@@ -12,6 +12,7 @@ from blaze.generate import generate_matrix, quant_error, quantize
 from blaze.integrate import integrate as integrate_chip
 from blaze.library import BUILDERS, build_op, measure_error
 from blaze.optimize import optimize_matrix
+from blaze.pd import run_pd
 from blaze.report import ADDER_NS, SKY130_CLOCK_MHZ, estimate_spec, estimate_verilog
 from blaze.sim import MATMUL_TENSORS, reference_block, simulate
 from blaze.spec import load_matrix
@@ -278,6 +279,24 @@ def view(path: Path | None, model: Path | None, checkpoint: Path | None, out: Pa
     ], as_json)
 
 
+def pd(layer_dir: Path, block: str | None, out: Path | None, clock_ns: float, threads: int | None,
+       max_mem_gb: float, dry_run: bool, as_json: bool) -> bool:
+    r = run_pd(layer_dir, block, out, clock_ns, threads, max_mem_gb, dry_run)
+    w, res = r["wrapper"], r["resources"]
+    lines = [f"pd       {r['summary']}",
+             f"wrapper  {w['file']} ({len(w['blocks'])} blocks, {w['wrapper_flops']:,} wrapper flops)",
+             f"config   {r['config']}"]
+    lines += [f"blocker  {b['item']} (checked: {b['checked']})" for b in r["blockers"]]
+    if res:
+        lines.append("memory   " + ", ".join(f"{k} {v}" for k, v in res.items()))
+    if r["gds"]:
+        lines.append(f"gds      {r['gds']}")
+    if "pd_json" in r:
+        lines.append(f"wrote    {r['pd_json']}")
+    _emit(r, lines, as_json)
+    return r["status"] in ("complete", "dry-run")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="blaze")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -348,6 +367,17 @@ def main() -> None:
     v.add_argument("--schematic", action="store_true",
                    help="synthesize --row's fan-in cone to gates (yosys) and draw it as SVG (netlistsvg)")
     v.add_argument("--json", action="store_true", help="print the summary as JSON")
+    d = sub.add_parser("pd", help="physical design of one layer with OpenLane 2 on SKY130 -> GDSII + pd.json")
+    d.add_argument("layer_dir", type=Path, help="generated layer, e.g. build/stories260K/layer0")
+    d.add_argument("--block", help="substitute: one block file in layer_dir, e.g. l0_wk_matvec.opt.v "
+                                   "(only after the layer run was deferred or failed)")
+    d.add_argument("--out", type=Path, help="run directory (default: build/<model>/pd/<layer or block>)")
+    d.add_argument("--clock-ns", type=float, default=20.0, help="clock period (default: 20 ns)")
+    d.add_argument("--threads", type=int, help="flow threads (default: min(4, cores/2))")
+    d.add_argument("--max-mem-gb", type=float, default=8.0,
+                   help="memory cap for the flow; the run is deferred if less is free (default: 8)")
+    d.add_argument("--dry-run", action="store_true", help="write the wrapper and config.json only")
+    d.add_argument("--json", action="store_true", help="print the summary as JSON")
     a = p.parse_args()
 
     if a.cmd == "fetch-model":
@@ -394,3 +424,9 @@ def main() -> None:
             view(a.file, a.model, a.checkpoint, a.out, a.row, a.schematic, a.json)
         except (OSError, ValueError, RuntimeError) as e:
             sys.exit(f"blaze view: {e}")
+    elif a.cmd == "pd":
+        try:
+            ok = pd(a.layer_dir, a.block, a.out, a.clock_ns, a.threads, a.max_mem_gb, a.dry_run, a.json)
+        except (OSError, ValueError, RuntimeError) as e:
+            sys.exit(f"blaze pd: {e}")
+        sys.exit(0 if ok else 1)

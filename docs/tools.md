@@ -100,6 +100,15 @@ This draws generated blocks for a person to look at, as one self-contained HTML 
 
 `--row N --schematic` extracts output row N's fan-in cone into a small standalone module, synthesizes it to generic gates with Yosys (`synth -flatten -noabc`, then `write_json`) and draws it with [netlistsvg](https://github.com/nturley/netlistsvg). Yosys comes from OSS CAD Suite like Verilator (native, or in WSL on Windows; see the [README](../README.md#simulation-setup-verilator)). netlistsvg is an npm package: `npm install -g netlistsvg`, or install it in any folder and put its `node_modules/.bin` on PATH. If either is missing, the command stops with that install message. `-o` sets the output file, `--json` prints the summary as JSON. Details and stories260K numbers are in [viewer.md](viewer.md).
 
+## pd
+
+```powershell
+blaze pd build/stories260K/layer0 --dry-run   # -> build/stories260K/pd/layer0/l0_pd_top.v + config.json
+blaze pd build/stories260K/layer0             # -> build/stories260K/pd/layer0/pd.json (+ runs/<tag>/final/gds/*.gds)
+```
+
+This runs OpenLane 2 on SKY130 (`sky130_fd_sc_hd`) for one generated layer: every block in the layer directory (a matrix's `.opt.v` in place of its `.v`) behind a generated six-pin shift-chain wrapper top. It writes the wrapper, an OpenLane `config.json` and `pd.json` under `build/<model>/pd/<layer>/` (`--out`). Before running, it checks the tools (`openlane openroad magic netgen klayout yosys`, natively or in WSL), the `sky130A` PDK (`$PDK_ROOT`, `~/.ciel`, `~/.volare`) and free memory on the host and in WSL. A missing tool or PDK gives `status: "blocked"` with each missing item and what was checked. Less free memory than `--max-mem-gb` (default 8) gives `deferred`. Both exit 1, as does a failed run. Area, timing, power, DRC and LVS come only from OpenLane's `metrics.json`, each tagged `measured` or `unavailable`. `--clock-ns` defaults to 20 and `--threads` to min(4, cores / 2). `--dry-run` writes the wrapper and config only, and `--json` prints the summary. `--block FILE` is a single-block substitute, allowed only after the layer run was deferred or failed, and never a layer result. Setup, the wrapper, limitations and foundry handoff gaps are in [physical-design.md](physical-design.md).
+
 ## estimate
 
 ```powershell

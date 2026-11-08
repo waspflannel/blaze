@@ -44,7 +44,7 @@ blaze adds `~/tools/oss-cad-suite/bin` to PATH for its WSL calls, so a newer rel
 - `src/blaze/sim` - Verilator block compare
 - `src/blaze/view` - `blaze view`: the whole model as a pan/zoom chip workspace, a block's adder graph inside it, one row as a gate schematic (see [docs/viewer.md](docs/viewer.md))
 - `src/blaze/integrate` - verified blocks -> full chip Verilog, its integer reference, token-exact chip simulation (see [docs/integrator.md](docs/integrator.md))
-- `src/blaze/pd` - Yosys/OpenLane wrappers
+- `src/blaze/pd` - `blaze pd`: one layer through OpenLane 2 on SKY130 to GDSII and `pd.json` (see [docs/physical-design.md](docs/physical-design.md))
 - `src/blaze/report` - tokens/sec, area, power reports
 - `src/blaze/cli.py` - `blaze` CLI
 - `plugins/` - dsh TypeScript plugins exposing each `blaze` command as a tool (see its README)
