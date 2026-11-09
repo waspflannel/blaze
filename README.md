@@ -18,7 +18,7 @@ pip install -e .
 
 ### Verilator
 
-`blaze sim-block` and `blaze integrate` use Verilator plus `make` and `g++`. If `verilator` is on PATH, blaze runs it directly; that's the usual case on Linux and macOS. On Windows, blaze runs it inside WSL from the free [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build) unpacked in your WSL home. This needs no sudo and doesn't touch system paths:
+`blaze sim-block` and `blaze integrate` use Verilator plus `make` and `g++`. If `verilator` is on PATH, blaze runs it directly; that's the usual case on Linux and macOS. On Windows, blaze runs it inside WSL from the free [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build) unpacked in your WSL home. Unpacking the suite under `~/tools` is user-local: no sudo, nothing in system paths. Only the optional `build-essential` step uses sudo, to install `g++` and `make` as system packages if they're missing:
 
 ```powershell
 wsl --install -d Ubuntu            # only if WSL isn't set up yet
