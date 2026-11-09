@@ -79,13 +79,6 @@ dsh --profile blaze "Use the block-agent skill on models/stories260K/stories260K
 
 Blocks go to `build/<model>/layer<N>/` and the chip to `build/<model>/chip/`. Full setup, verification of the profile, and options are in [docs/block-agent.md](docs/block-agent.md). To use the tools without the agent profile (e.g. the `sdk-minimal` profile over JSON-RPC), see [plugins/README.md](plugins/README.md).
 
-## Open PRs
-
-These are not on `main` and have not produced verified output yet:
-
-- [#12](https://github.com/waspflannel/blaze/pull/12): OpenLane physical design (`blaze pd`, GDSII). No verified GDS.
-- [#13](https://github.com/waspflannel/blaze/pull/13): FPGA bitstream export (`blaze fpga`, `blaze_fpga_export`). No verified bitstream.
-
 ## Docs
 
 - [docs/tools.md](docs/tools.md): every `blaze` command
